@@ -1,0 +1,226 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# =============================================================================
+# ML Model Files - DO NOT COMMIT
+# =============================================================================
+
+# ONNX models
+*.onnx
+
+# PyTorch models
+*.pt
+*.pth
+*.bin
+
+# TensorFlow / Keras models
+*.h5
+*.pb
+*.tflite
+saved_model/
+
+# TensorRT engines
+*.engine
+*.plan
+*.trt
+
+# IREE compiled modules
+*.vmfb
+
+# OpenVINO compiled models
+*.xml
+*.bin
+
+# MLIR files
+*.mlir
+
+# SafeTensors
+*.safetensors
+
+# Pickle files (often contain models)
+*.pkl
+*.pickle
+
+# Model directories (common naming patterns)
+models/
+checkpoints/
+weights/
+pretrained/
+
+# TensorRT cache
+trt_cache/
+*_trt_cache/
+
+# OpenVINO cache
+ov_cache/
+*_ov_cache/
+
+# IREE cache
+iree_cache/
+*_iree_cache/
+
+# Timing caches
+*.cache
+timing_cache/
+
+# =============================================================================
+# Data Files
+# =============================================================================
+
+# Images (test images are ok, but large datasets should not be committed)
+# Uncomment if you want to ignore all images:
+# *.jpg
+# *.jpeg
+# *.png
+# *.gif
+# *.bmp
+# *.tiff
+
+# Videos
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Large data files
+*.csv
+*.parquet
+*.arrow
+*.feather
+data/
+datasets/
+
+# =============================================================================
+# System Files
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# =============================================================================
+# Logs and Temporary Files
+# =============================================================================
+
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+
+# Profiling
+*.prof
+*.lprof
+
+# =============================================================================
+# Secrets and Credentials
+# =============================================================================
+
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets.yaml
+secrets.json
+credentials.json

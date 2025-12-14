@@ -1,0 +1,215 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "polyinfer"
+version = "0.1.0"
+description = "Unified ML inference across multiple backends: ONNX Runtime, OpenVINO, TensorRT, IREE"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Athrva Pandhare", email = "athrva98@gmail.com" }
+]
+keywords = [
+    "machine-learning",
+    "inference",
+    "onnx",
+    "tensorrt",
+    "openvino",
+    "onnxruntime",
+    "deep-learning",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Core dependencies (minimal)
+dependencies = [
+    "numpy>=1.24",
+    "onnx>=1.14",
+]
+
+[project.optional-dependencies]
+# === Individual Backends ===
+onnxruntime = ["onnxruntime>=1.17"]
+onnxruntime-gpu = ["onnxruntime-gpu>=1.17"]
+onnxruntime-directml = ["onnxruntime-directml>=1.17"]
+openvino = ["openvino>=2024.0"]
+iree = ["iree-base-compiler>=3.0", "iree-base-runtime>=3.0"]
+
+# === NVIDIA CUDA Libraries (auto-installed, auto-configured) ===
+cuda = [
+    "nvidia-cuda-runtime-cu12>=12.4",
+    "nvidia-cublas-cu12>=12.4",
+    "nvidia-cufft-cu12>=11.2",
+    "nvidia-curand-cu12>=10.3",
+    "nvidia-cusolver-cu12>=11.6",
+    "nvidia-cusparse-cu12>=12.3",
+    "nvidia-cudnn-cu12>=9.0",
+    "nvidia-nvjitlink-cu12>=12.4",
+]
+
+tensorrt = [
+    "tensorrt-cu12>=10.0",
+    "tensorrt-cu12-bindings>=10.0",
+    "tensorrt-cu12-libs>=10.0",
+]
+
+# === Device-focused bundles ===
+# CPU-optimized (Intel/AMD/ARM)
+cpu = [
+    "onnxruntime>=1.17",
+    "openvino>=2024.0",
+    "iree-base-compiler>=3.0",
+    "iree-base-runtime>=3.0",
+]
+
+# NVIDIA GPU - FULLY AUTOMATIC, NO MANUAL SETUP REQUIRED
+nvidia = [
+    "onnxruntime-gpu>=1.17",
+    # CUDA libraries - automatically downloaded and configured
+    "nvidia-cuda-runtime-cu12>=12.4",
+    "nvidia-cublas-cu12>=12.4",
+    "nvidia-cufft-cu12>=11.2",
+    "nvidia-curand-cu12>=10.3",
+    "nvidia-cusolver-cu12>=11.6",
+    "nvidia-cusparse-cu12>=12.3",
+    "nvidia-cudnn-cu12>=9.0",
+    "nvidia-nvjitlink-cu12>=12.4",
+    # TensorRT - automatically downloaded and configured
+    "tensorrt-cu12>=10.0",
+    "tensorrt-cu12-bindings>=10.0",
+    "tensorrt-cu12-libs>=10.0",
+    # IREE for Vulkan/CUDA compilation
+    "iree-base-compiler>=3.0",
+    "iree-base-runtime>=3.0",
+]
+
+# AMD GPU (Windows DirectML)
+amd = [
+    "onnxruntime-directml>=1.17",
+    "iree-base-compiler>=3.0",
+    "iree-base-runtime>=3.0",
+]
+
+# Intel (CPU + integrated GPU + NPU)
+intel = [
+    "openvino>=2024.0",
+    "iree-base-compiler>=3.0",
+    "iree-base-runtime>=3.0",
+]
+
+# Vulkan (cross-platform GPU via IREE)
+vulkan = [
+    "iree-base-compiler>=3.0",
+    "iree-base-runtime>=3.0",
+]
+
+# === Tier bundles ===
+# Tier 1: Most users - easy install, broad compatibility
+tier1 = [
+    "onnxruntime>=1.17",
+    "openvino>=2024.0",
+]
+
+# Tier 2: Power users - NVIDIA GPU with CUDA/TensorRT
+tier2 = [
+    "onnxruntime-gpu>=1.17",
+    "nvidia-cuda-runtime-cu12>=12.4",
+    "nvidia-cublas-cu12>=12.4",
+    "nvidia-cudnn-cu12>=9.0",
+    "tensorrt-cu12-libs>=10.0",
+]
+
+# === ALL BACKENDS - EVERYTHING JUST WORKS ===
+all = [
+    # CPU backends
+    "onnxruntime>=1.17",
+    "openvino>=2024.0",
+    # GPU backend
+    "onnxruntime-gpu>=1.17",
+    # CUDA libraries (auto-downloaded, auto-configured by polyinfer)
+    "nvidia-cuda-runtime-cu12>=12.4",
+    "nvidia-cublas-cu12>=12.4",
+    "nvidia-cufft-cu12>=11.2",
+    "nvidia-curand-cu12>=10.3",
+    "nvidia-cusolver-cu12>=11.6",
+    "nvidia-cusparse-cu12>=12.3",
+    "nvidia-cudnn-cu12>=9.0",
+    "nvidia-nvjitlink-cu12>=12.4",
+    # TensorRT (auto-downloaded, auto-configured by polyinfer)
+    "tensorrt-cu12>=10.0",
+    "tensorrt-cu12-bindings>=10.0",
+    "tensorrt-cu12-libs>=10.0",
+    # IREE
+    "iree-base-compiler>=3.0",
+    "iree-base-runtime>=3.0",
+]
+
+# === Example dependencies ===
+# Install with: pip install polyinfer[examples]
+examples = [
+    "torch>=2.0",
+    "pillow>=9.0",
+    "opencv-python>=4.8",
+    "transformers>=4.30",
+    "diffusers>=0.25",
+    "segment-anything",
+    "optimum[onnxruntime]>=1.16",
+]
+
+# Development dependencies
+dev = [
+    "pytest>=7.0",
+    "pytest-benchmark>=4.0",
+    "ruff>=0.1",
+    "mypy>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/athrv/polyinfer"
+Documentation = "https://github.com/athrv/polyinfer#readme"
+Repository = "https://github.com/athrv/polyinfer"
+Issues = "https://github.com/athrv/polyinfer/issues"
+
+[project.scripts]
+polyinfer = "polyinfer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polyinfer"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/examples",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]  # line too long - handled by formatter
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
