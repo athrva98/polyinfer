@@ -177,10 +177,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/athrv/polyinfer"
-Documentation = "https://github.com/athrv/polyinfer#readme"
-Repository = "https://github.com/athrv/polyinfer"
-Issues = "https://github.com/athrv/polyinfer/issues"
+Homepage = "https://github.com/athrva98/polyinfer"
+Documentation = "https://github.com/athrva98/polyinfer#readme"
+Repository = "https://github.com/athrva98/polyinfer"
+Issues = "https://github.com/athrva98/polyinfer/issues"
 
 [project.scripts]
 polyinfer = "polyinfer.cli:main"
