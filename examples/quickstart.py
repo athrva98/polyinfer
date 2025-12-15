@@ -41,27 +41,22 @@ def main():
         print(f"Using existing model: {model_path}")
     else:
         print("Exporting ResNet18 to ONNX...")
-        try:
-            import torch
-            import torchvision.models as models
+        import torch
+        import torchvision.models as models
 
-            model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-            model.eval()
+        resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        resnet.eval()
 
-            dummy_input = torch.randn(1, 3, 224, 224)
-            torch.onnx.export(
-                model,
-                dummy_input,
-                str(model_path),
-                input_names=["input"],
-                output_names=["output"],
-                dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
-            )
-            print(f"Exported: {model_path}")
-        except ImportError:
-            print("PyTorch not installed. Please provide an ONNX model.")
-            print("You can download one from: https://github.com/onnx/models")
-            return
+        dummy_input = torch.randn(1, 3, 224, 224)
+        torch.onnx.export(
+            resnet,
+            dummy_input,
+            str(model_path),
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+        )
+        print(f"Exported: {model_path}")
 
     print()
 
@@ -113,12 +108,14 @@ def main():
     # ===========================================
     print("5. Explicit backend selection...")
     for backend_name in pi.list_backends():
+        # TensorRT requires GPU
+        device = "cuda" if backend_name == "tensorrt" else "cpu"
         try:
-            m = pi.load(model_path, backend=backend_name, device="cpu")
+            m = pi.load(model_path, backend=backend_name, device=device)
             result = m.benchmark(input_data, warmup=5, iterations=20)
-            print(f"   {backend_name}: {result['mean_ms']:.2f} ms ({result['fps']:.1f} FPS)")
+            print(f"   {backend_name} ({device}): {result['mean_ms']:.2f} ms ({result['fps']:.1f} FPS)")
         except Exception as e:
-            print(f"   {backend_name}: Error - {e}")
+            print(f"   {backend_name} ({device}): Error - {e}")
 
     print()
     print("Done!")

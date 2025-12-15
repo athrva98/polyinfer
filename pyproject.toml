@@ -33,7 +33,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# Core dependencies (minimal)
+# Core dependencies (torch/torchvision in extras to avoid CUDA conflicts)
 dependencies = [
     "numpy>=1.24",
     "onnx>=1.14",
@@ -47,24 +47,6 @@ onnxruntime-directml = ["onnxruntime-directml>=1.17"]
 openvino = ["openvino>=2024.0"]
 iree = ["iree-base-compiler>=3.0", "iree-base-runtime>=3.0"]
 
-# === NVIDIA CUDA Libraries (auto-installed, auto-configured) ===
-cuda = [
-    "nvidia-cuda-runtime-cu12>=12.4",
-    "nvidia-cublas-cu12>=12.4",
-    "nvidia-cufft-cu12>=11.2",
-    "nvidia-curand-cu12>=10.3",
-    "nvidia-cusolver-cu12>=11.6",
-    "nvidia-cusparse-cu12>=12.3",
-    "nvidia-cudnn-cu12>=9.0",
-    "nvidia-nvjitlink-cu12>=12.4",
-]
-
-tensorrt = [
-    "tensorrt-cu12>=10.0",
-    "tensorrt-cu12-bindings>=10.0",
-    "tensorrt-cu12-libs>=10.0",
-]
-
 # === Device-focused bundles ===
 # CPU-optimized (Intel/AMD/ARM)
 cpu = [
@@ -72,27 +54,21 @@ cpu = [
     "openvino>=2024.0",
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
+    "torch>=2.0",
+    "torchvision>=0.15",
 ]
 
-# NVIDIA GPU - FULLY AUTOMATIC, NO MANUAL SETUP REQUIRED
+# NVIDIA GPU - CUDA + TensorRT (native)
+# Pin torch 2.4.0 (CUDA 12.1) - compatible with tensorrt-cu12-libs
 nvidia = [
     "onnxruntime-gpu>=1.17",
-    # CUDA libraries - automatically downloaded and configured
-    "nvidia-cuda-runtime-cu12>=12.4",
-    "nvidia-cublas-cu12>=12.4",
-    "nvidia-cufft-cu12>=11.2",
-    "nvidia-curand-cu12>=10.3",
-    "nvidia-cusolver-cu12>=11.6",
-    "nvidia-cusparse-cu12>=12.3",
-    "nvidia-cudnn-cu12>=9.0",
-    "nvidia-nvjitlink-cu12>=12.4",
-    # TensorRT - automatically downloaded and configured
     "tensorrt-cu12>=10.0",
     "tensorrt-cu12-bindings>=10.0",
     "tensorrt-cu12-libs>=10.0",
-    # IREE for Vulkan/CUDA compilation
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
+    "torch==2.4.0",
+    "torchvision==0.19.0",
 ]
 
 # AMD GPU (Windows DirectML)
@@ -100,6 +76,8 @@ amd = [
     "onnxruntime-directml>=1.17",
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
+    "torch>=2.0",
+    "torchvision>=0.15",
 ]
 
 # Intel (CPU + integrated GPU + NPU)
@@ -107,12 +85,16 @@ intel = [
     "openvino>=2024.0",
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
+    "torch>=2.0",
+    "torchvision>=0.15",
 ]
 
 # Vulkan (cross-platform GPU via IREE)
 vulkan = [
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
+    "torch>=2.0",
+    "torchvision>=0.15",
 ]
 
 # === Tier bundles ===
@@ -125,41 +107,27 @@ tier1 = [
 # Tier 2: Power users - NVIDIA GPU with CUDA/TensorRT
 tier2 = [
     "onnxruntime-gpu>=1.17",
-    "nvidia-cuda-runtime-cu12>=12.4",
-    "nvidia-cublas-cu12>=12.4",
-    "nvidia-cudnn-cu12>=9.0",
-    "tensorrt-cu12-libs>=10.0",
 ]
 
-# === ALL BACKENDS - EVERYTHING JUST WORKS ===
+# === ALL BACKENDS ===
+# Pin torch 2.4.0 (CUDA 12.1) - compatible with tensorrt-cu12-libs
 all = [
-    # CPU backends
     "onnxruntime>=1.17",
     "openvino>=2024.0",
-    # GPU backend
     "onnxruntime-gpu>=1.17",
-    # CUDA libraries (auto-downloaded, auto-configured by polyinfer)
-    "nvidia-cuda-runtime-cu12>=12.4",
-    "nvidia-cublas-cu12>=12.4",
-    "nvidia-cufft-cu12>=11.2",
-    "nvidia-curand-cu12>=10.3",
-    "nvidia-cusolver-cu12>=11.6",
-    "nvidia-cusparse-cu12>=12.3",
-    "nvidia-cudnn-cu12>=9.0",
-    "nvidia-nvjitlink-cu12>=12.4",
-    # TensorRT (auto-downloaded, auto-configured by polyinfer)
     "tensorrt-cu12>=10.0",
     "tensorrt-cu12-bindings>=10.0",
     "tensorrt-cu12-libs>=10.0",
-    # IREE
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
+    "torch==2.4.0",
+    "torchvision==0.19.0",
 ]
 
 # === Example dependencies ===
 # Install with: pip install polyinfer[examples]
+# Note: torch is already a core dependency
 examples = [
-    "torch>=2.0",
     "pillow>=9.0",
     "opencv-python>=4.8",
     "transformers>=4.30",
