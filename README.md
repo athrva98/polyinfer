@@ -44,7 +44,7 @@ print(pi.list_devices())   # [cpu, cuda, tensorrt, ...]
 # Load model - auto-selects fastest backend
 model = pi.load("model.onnx", device="cpu")        # Uses OpenVINO (fastest for CPU)
 model = pi.load("model.onnx", device="cuda")       # Uses CUDA
-model = pi.load("model.onnx", device="tensorrt")   # Uses TensorRT (450+ FPS!)
+model = pi.load("model.onnx", device="tensorrt")   # Uses TensorRT (450+ FPS on YoloV8n RTX5060!)
 
 # Run inference
 import numpy as np
@@ -64,7 +64,7 @@ model = pi.load("model.onnx", device="cpu")
 # NVIDIA GPU
 model = pi.load("model.onnx", device="cuda")       # CUDA
 model = pi.load("model.onnx", device="cuda:0")     # Specific GPU
-model = pi.load("model.onnx", device="tensorrt")   # TensorRT (fastest)
+model = pi.load("model.onnx", device="tensorrt")   # TensorRT (generally the fastest for Nvidia)
 
 # AMD/Intel/Any GPU on Windows
 model = pi.load("model.onnx", device="directml")
@@ -91,6 +91,7 @@ model = pi.load("model.onnx", backend="tensorrt")  # Auto-uses TensorRT EP
 # Compare all available backends
 pi.compare("model.onnx", input_shape=(1, 3, 640, 640))
 
+# For YOLO V8n
 # Output:
 # Backend Comparison for model.onnx
 # ============================================================
@@ -113,7 +114,7 @@ polyinfer benchmark model.onnx --device tensorrt
 polyinfer run model.onnx --device cuda
 ```
 
-## Performance (YOLOv8n)
+## Performance (YOLOv8n @ 640x640, RTX 5060)
 
 | Backend | Latency | FPS | Speedup |
 |---------|---------|-----|---------|
