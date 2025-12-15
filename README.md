@@ -11,6 +11,9 @@
 
 Unified ML inference across multiple backends.
 
+### Installation
+
+**From PyPI** (coming soon):
 ```bash
 pip install polyinfer[nvidia]   # NVIDIA GPU - includes CUDA, cuDNN, TensorRT
 pip install polyinfer[intel]    # Intel CPU/GPU/NPU
@@ -18,6 +21,13 @@ pip install polyinfer[amd]      # AMD GPU (Windows DirectML)
 pip install polyinfer[cpu]      # CPU only
 pip install polyinfer[all]      # Everything
 pip install polyinfer[examples] # Dependencies for running examples (torch, PIL, etc.)
+```
+
+**From source** (current):
+```bash
+git clone https://github.com/athrva98/polyinfer.git
+cd polyinfer
+pip install -e ".[nvidia]"      # Or any of the extras above
 ```
 
 **No manual CUDA/cuDNN/TensorRT installation required.** All dependencies are automatically downloaded and configured. Works on Windows, Linux, and WSL2.
@@ -190,11 +200,13 @@ pytest tests/
 conda create -n polyinfer python=3.11
 conda activate polyinfer
 
-# Install with NVIDIA support
-pip install polyinfer[nvidia]
+# Clone and install with NVIDIA support
+git clone https://github.com/athrva98/polyinfer.git
+cd polyinfer
+pip install -e ".[nvidia]"
 
 # Or for AMD GPU
-pip install polyinfer[amd]
+pip install -e ".[amd]"
 
 # Verify installation
 python -c "import polyinfer as pi; print(pi.list_devices())"
@@ -207,8 +219,10 @@ python -c "import polyinfer as pi; print(pi.list_devices())"
 python3 -m venv ~/polyinfer_venv
 source ~/polyinfer_venv/bin/activate
 
-# Install with NVIDIA support
-pip install polyinfer[nvidia]
+# Clone and install with NVIDIA support
+git clone https://github.com/athrva98/polyinfer.git
+cd polyinfer
+pip install -e ".[nvidia]"
 
 # Verify CUDA works
 python -c "import polyinfer as pi; print(pi.list_devices())"
@@ -223,11 +237,15 @@ python -c "import polyinfer as pi; print(pi.list_devices())"
 #### macOS
 
 ```bash
+# Clone repository
+git clone https://github.com/athrva98/polyinfer.git
+cd polyinfer
+
 # Install CPU-only (no GPU acceleration on macOS yet)
-pip install polyinfer[cpu]
+pip install -e ".[cpu]"
 
 # IREE provides some Metal support (experimental)
-pip install polyinfer[vulkan]
+pip install -e ".[vulkan]"
 ```
 
 ---
