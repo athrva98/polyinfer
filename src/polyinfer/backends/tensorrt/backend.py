@@ -9,7 +9,12 @@ from polyinfer.backends.base import Backend, CompiledModel
 # Check if TensorRT is available
 try:
     import tensorrt as trt
-    import cuda.cudart as cudart
+
+    # cuda-python 12.x uses cuda.cudart, 13.x+ uses cuda.bindings.runtime
+    try:
+        from cuda.bindings import runtime as cudart
+    except ImportError:
+        import cuda.cudart as cudart
 
     TENSORRT_AVAILABLE = True
 except ImportError:
@@ -376,10 +381,15 @@ class TensorRTBackend(Backend):
         # === Engine capability ===
         capability = kwargs.get("engine_capability", "default")
         if hasattr(config, "engine_capability"):
-            cap_map = {
-                "default": trt.EngineCapability.DEFAULT,
-                "safe": trt.EngineCapability.SAFETY,
-            }
+            cap_map = {}
+            # TensorRT 10+ uses STANDARD, older versions use DEFAULT
+            if hasattr(trt.EngineCapability, "STANDARD"):
+                cap_map["default"] = trt.EngineCapability.STANDARD
+                cap_map["standard"] = trt.EngineCapability.STANDARD
+            elif hasattr(trt.EngineCapability, "DEFAULT"):
+                cap_map["default"] = trt.EngineCapability.DEFAULT
+            if hasattr(trt.EngineCapability, "SAFETY"):
+                cap_map["safe"] = trt.EngineCapability.SAFETY
             if hasattr(trt.EngineCapability, "DLA_STANDALONE"):
                 cap_map["dla_standalone"] = trt.EngineCapability.DLA_STANDALONE
             if capability in cap_map:

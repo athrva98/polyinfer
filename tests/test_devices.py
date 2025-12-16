@@ -112,7 +112,7 @@ class TestTensorRTDevice:
     @pytest.mark.tensorrt
     def test_tensorrt_backend_alias(self, model_path, yolo_input):
         """Test tensorrt backend alias."""
-        model = pi.load(model_path, backend="tensorrt")
+        model = pi.load(model_path, backend="tensorrt", device="cuda")
         assert "tensorrt" in model.backend_name.lower()
 
         output = model(yolo_input)

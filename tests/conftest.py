@@ -93,6 +93,7 @@ def simple_model_path(tmp_path_factory):
 @pytest.fixture
 def yolo_input():
     """Create input tensor for YOLOv8 (1x3x640x640)."""
+    np.random.seed(42)  # Fixed seed for reproducibility
     return np.random.rand(1, 3, 640, 640).astype(np.float32)
 
 
