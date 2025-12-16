@@ -187,8 +187,10 @@ class TensorRTBackend(Backend):
 
     @property
     def priority(self) -> int:
-        # TensorRT is the fastest for NVIDIA
-        return 100
+        # Native TensorRT has lower priority than ONNX Runtime's TensorRT EP
+        # because tensorrt-cu12-libs causes CUDA conflicts with PyTorch.
+        # Users who want native TensorRT can specify backend="tensorrt" explicitly.
+        return 50
 
     def is_available(self) -> bool:
         return TENSORRT_AVAILABLE

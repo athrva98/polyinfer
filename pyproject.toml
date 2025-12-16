@@ -47,6 +47,16 @@ onnxruntime-directml = ["onnxruntime-directml>=1.17"]
 openvino = ["openvino>=2024.0"]
 iree = ["iree-base-compiler>=3.0", "iree-base-runtime>=3.0"]
 
+# TensorRT native backend (install separately to avoid CUDA conflicts)
+# IMPORTANT: tensorrt-cu12-libs depends on cuda-toolkit which overwrites CUDA libraries
+# and breaks PyTorch. After installing TensorRT, reinstall torch:
+#   pip install tensorrt-cu12 cuda-python
+#   pip install torch torchvision --force-reinstall
+tensorrt = [
+    "tensorrt-cu12>=10.0",
+    "cuda-python>=12.0",
+]
+
 # === Device-focused bundles ===
 # CPU-optimized (Intel/AMD/ARM)
 cpu = [
@@ -58,19 +68,15 @@ cpu = [
     "torchvision>=0.15",
 ]
 
-# NVIDIA GPU - CUDA + TensorRT (native)
-# tensorrt-cu12 is built with CUDA 12.9 but compatible with all CUDA 12.x
-# torch 2.4+ uses CUDA 12.1-12.6, all work with tensorrt-cu12
+# NVIDIA GPU - CUDA inference (without native TensorRT to avoid conflicts)
+# For native TensorRT, install separately: pip install tensorrt-cu12 cuda-python
+# The onnxruntime-gpu package includes TensorRT Execution Provider as fallback
 nvidia = [
     "onnxruntime-gpu>=1.17",
-    "tensorrt-cu12>=10.0",
-    "tensorrt-cu12-bindings>=10.0",
-    "tensorrt-cu12-libs>=10.0",
-    "cuda-python>=12.0",
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
-    "torch>=2.4,<3.0",
-    "torchvision>=0.19",
+    "torch>=2.0",
+    "torchvision>=0.15",
 ]
 
 # AMD GPU (Windows DirectML)
@@ -111,20 +117,17 @@ tier2 = [
     "onnxruntime-gpu>=1.17",
 ]
 
-# === ALL BACKENDS ===
-# tensorrt-cu12 is built with CUDA 12.9 but compatible with all CUDA 12.x
+# === ALL BACKENDS (except native TensorRT) ===
+# Native TensorRT excluded to avoid cuda-toolkit conflicts with PyTorch.
+# For native TensorRT, install separately: pip install tensorrt-cu12 cuda-python
 all = [
     "onnxruntime>=1.17",
     "openvino>=2024.0",
     "onnxruntime-gpu>=1.17",
-    "tensorrt-cu12>=10.0",
-    "tensorrt-cu12-bindings>=10.0",
-    "tensorrt-cu12-libs>=10.0",
-    "cuda-python>=12.0",
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
-    "torch>=2.4,<3.0",
-    "torchvision>=0.19",
+    "torch>=2.0",
+    "torchvision>=0.15",
 ]
 
 # === Example dependencies ===

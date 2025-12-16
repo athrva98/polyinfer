@@ -239,18 +239,18 @@ class ONNXRuntimeBackend(Backend):
 
                 elif provider == "TensorrtExecutionProvider":
                     opts["device_id"] = str(device_id)
-                    # Precision
-                    opts["trt_fp16_enable"] = str(int(kwargs.get("fp16", False)))
-                    opts["trt_int8_enable"] = str(int(kwargs.get("int8", False)))
+                    # Precision (newer ORT versions expect "True"/"False" not "1"/"0")
+                    opts["trt_fp16_enable"] = "True" if kwargs.get("fp16", False) else "False"
+                    opts["trt_int8_enable"] = "True" if kwargs.get("int8", False) else "False"
                     # Caching
-                    opts["trt_engine_cache_enable"] = "1"
+                    opts["trt_engine_cache_enable"] = "True"
                     opts["trt_engine_cache_path"] = kwargs.get("cache_dir", "./trt_cache")
                     # Optimization
                     if "builder_optimization_level" in kwargs:
                         opts["trt_builder_optimization_level"] = str(kwargs["builder_optimization_level"])
                     if "timing_cache_path" in kwargs:
                         opts["trt_timing_cache_path"] = kwargs["timing_cache_path"]
-                        opts["trt_timing_cache_enable"] = "1"
+                        opts["trt_timing_cache_enable"] = "True"
                     if "max_workspace_size" in kwargs:
                         opts["trt_max_workspace_size"] = str(kwargs["max_workspace_size"])
                     else:
@@ -262,11 +262,11 @@ class ONNXRuntimeBackend(Backend):
                         opts["trt_max_partition_iterations"] = str(kwargs["max_partition_iterations"])
                     # DLA
                     if kwargs.get("dla_enable", False):
-                        opts["trt_dla_enable"] = "1"
+                        opts["trt_dla_enable"] = "True"
                         opts["trt_dla_core"] = str(kwargs.get("dla_core", 0))
                     # Build options
                     if kwargs.get("force_sequential_engine_build", False):
-                        opts["trt_force_sequential_engine_build"] = "1"
+                        opts["trt_force_sequential_engine_build"] = "True"
 
                 elif provider == "DmlExecutionProvider":
                     opts["device_id"] = str(device_id)

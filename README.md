@@ -15,12 +15,19 @@ Unified ML inference across multiple backends.
 
 **From PyPI** (coming soon):
 ```bash
-pip install polyinfer[nvidia]   # NVIDIA GPU - includes CUDA, cuDNN, TensorRT
+pip install polyinfer[nvidia]   # NVIDIA GPU (CUDA + cuDNN via onnxruntime-gpu)
 pip install polyinfer[intel]    # Intel CPU/GPU/NPU
 pip install polyinfer[amd]      # AMD GPU (Windows DirectML)
 pip install polyinfer[cpu]      # CPU only
 pip install polyinfer[all]      # Everything
 pip install polyinfer[examples] # Dependencies for running examples (torch, PIL, etc.)
+```
+
+**Native TensorRT** (optional, for maximum performance):
+```bash
+# Install AFTER polyinfer[nvidia], then reinstall torch
+pip install tensorrt-cu12 cuda-python
+pip install torch torchvision --force-reinstall
 ```
 
 **From source** (current):
@@ -30,7 +37,7 @@ cd polyinfer
 pip install -e ".[nvidia]"      # Or any of the extras above
 ```
 
-**No manual CUDA/cuDNN/TensorRT installation required.** All dependencies are automatically downloaded and configured. Works on Windows, Linux, and WSL2.
+**No manual CUDA/cuDNN installation required.** Dependencies are automatically downloaded and configured. Works on Windows, Linux, and WSL2.
 
 ## Quick Start
 
@@ -82,7 +89,10 @@ model = pi.load("model.onnx", device="cuda")
 # Explicit backend
 model = pi.load("model.onnx", backend="onnxruntime", device="cuda")
 model = pi.load("model.onnx", backend="openvino", device="cpu")
-model = pi.load("model.onnx", backend="tensorrt")  # Auto-uses TensorRT EP
+
+# TensorRT options:
+model = pi.load("model.onnx", device="tensorrt")              # ONNX Runtime TensorRT EP (recommended)
+model = pi.load("model.onnx", backend="tensorrt", device="cuda")  # Native TensorRT (requires separate install)
 ```
 
 ## Compare Backends
@@ -165,13 +175,21 @@ model = backend.load_vmfb(vmfb, device="vulkan")
 
 | Extra | What's Included | Use Case |
 |-------|-----------------|----------|
-| `[nvidia]` | ONNX Runtime GPU, CUDA 12, cuDNN 9, TensorRT 10, IREE | NVIDIA GPUs |
-| `[intel]` | OpenVINO, IREE | Intel CPU, iGPU, NPU |
-| `[amd]` | ONNX Runtime DirectML, IREE | AMD GPUs on Windows |
-| `[cpu]` | ONNX Runtime, OpenVINO, IREE | CPU-only systems |
-| `[vulkan]` | IREE | Cross-platform GPU via Vulkan |
+| `[nvidia]` | ONNX Runtime GPU, IREE, torch | NVIDIA GPUs |
+| `[intel]` | OpenVINO, IREE, torch | Intel CPU, iGPU, NPU |
+| `[amd]` | ONNX Runtime DirectML, IREE, torch | AMD GPUs on Windows |
+| `[cpu]` | ONNX Runtime, OpenVINO, IREE, torch | CPU-only systems |
+| `[vulkan]` | IREE, torch | Cross-platform GPU via Vulkan |
 | `[all]` | Everything above | Maximum compatibility |
-| `[examples]` | torch, PIL, opencv, transformers, diffusers, segment-anything | Running example scripts |
+| `[tensorrt]` | tensorrt-cu12, cuda-python | Native TensorRT (install separately) |
+| `[examples]` | PIL, opencv, transformers, diffusers, segment-anything | Running example scripts |
+
+**Note:** Native TensorRT is provided as a separate `[tensorrt]` extra because `tensorrt-cu12-libs` depends on `cuda-toolkit` which overwrites CUDA libraries and breaks PyTorch. Install it separately after `[nvidia]`, then reinstall torch:
+```bash
+pip install polyinfer[nvidia]
+pip install tensorrt-cu12 cuda-python  # Or: pip install polyinfer[tensorrt]
+pip install torch torchvision --force-reinstall  # Fix torch after TensorRT install
+```
 
 ### Development Install
 
@@ -280,10 +298,12 @@ When you call `pi.load("model.onnx", device="cuda")`, polyinfer selects the best
 
 | Backend | Priority | Devices |
 |---------|----------|---------|
-| TensorRT (native) | 100 | cuda, tensorrt |
 | OpenVINO | 70 | cpu, intel-gpu, npu |
 | ONNX Runtime | 60 | cpu, cuda, tensorrt, directml, rocm, coreml |
+| TensorRT (native) | 50 | cuda, tensorrt |
 | IREE | 40 | cpu, vulkan, cuda |
+
+**Note:** ONNX Runtime's TensorRT Execution Provider is preferred over native TensorRT because it works out-of-the-box without dependency conflicts. For `device="tensorrt"`, ONNX Runtime's TensorRT EP is used by default. To use native TensorRT, specify `backend="tensorrt"` explicitly.
 
 ### Device Normalization
 
@@ -305,6 +325,12 @@ All backends support passing options through `pi.load()`. Options are passed as 
 ### Native TensorRT Backend
 
 For maximum NVIDIA performance. Supports full TensorRT configuration.
+
+**Requires separate installation:**
+```bash
+pip install tensorrt-cu12 cuda-python
+pip install torch torchvision --force-reinstall  # Fix torch after TensorRT install
+```
 
 ```python
 model = pi.load("model.onnx", backend="tensorrt", device="cuda",
@@ -597,6 +623,17 @@ If libraries are found but still failing, the ctypes preload may not work for yo
 export LD_LIBRARY_PATH=$(python -c "from polyinfer.nvidia_setup import get_nvidia_info; print(':'.join(get_nvidia_info()['library_directories']))")
 python your_script.py
 ```
+
+#### PyTorch breaks after installing TensorRT ("undefined symbol: ncclCommWindowRegister")
+
+**Cause:** `tensorrt-cu12-libs` depends on `cuda-toolkit`, which overwrites CUDA libraries (nvidia-cuda-runtime, nvidia-nccl, etc.) with versions incompatible with PyTorch.
+
+**Solution:** Reinstall PyTorch after installing TensorRT:
+```bash
+pip install torch torchvision --force-reinstall
+```
+
+**Prevention:** Use ONNX Runtime's TensorRT Execution Provider instead (works with `device="tensorrt"` by default). It provides similar performance without dependency conflicts. Only install native TensorRT if you need advanced TensorRT features.
 
 #### "iree-import-onnx not found"
 
