@@ -138,13 +138,23 @@ def _check_onnxruntime_conflicts():
     On Windows, onnxruntime-gpu, onnxruntime-directml, and onnxruntime
     cannot coexist properly. This function detects conflicts and provides
     guidance or automatic fixes.
+
+    IMPORTANT: This function avoids importing onnxruntime on Linux when torch
+    is already loaded, as importing onnxruntime-gpu can load CUDA libraries
+    that conflict with PyTorch's bundled NCCL.
     """
+    # On Linux, skip this check entirely if PyTorch is already loaded.
+    # Importing onnxruntime-gpu can load CUDA libraries that conflict with
+    # PyTorch's bundled NCCL, causing "undefined symbol: ncclCommWindowRegister"
+    if sys.platform.startswith("linux") and "torch" in sys.modules:
+        return
+
     try:
         import importlib.metadata as metadata
     except ImportError:
         import importlib_metadata as metadata
 
-    # Check which onnxruntime variants are installed
+    # Check which onnxruntime variants are installed (metadata only, no import)
     installed = []
     for pkg in ["onnxruntime", "onnxruntime-gpu", "onnxruntime-directml"]:
         try:
@@ -153,8 +163,9 @@ def _check_onnxruntime_conflicts():
         except metadata.PackageNotFoundError:
             pass
 
-    # If multiple variants installed, check which one is actually active
-    if len(installed) > 1:
+    # Only check provider availability on Windows where the conflict is less severe
+    # On Linux with onnxruntime-gpu, importing it can pollute CUDA environment
+    if len(installed) > 1 and sys.platform == "win32":
         try:
             import onnxruntime as ort
             providers = ort.get_available_providers()
@@ -195,6 +206,19 @@ def _check_onnxruntime_conflicts():
                     )
         except ImportError:
             pass  # onnxruntime not importable, skip check
+    elif len(installed) > 1:
+        # On Linux, just warn based on metadata without importing
+        if "onnxruntime-gpu" in installed and "onnxruntime-directml" in installed:
+            warnings.warn(
+                "\n\n"
+                "⚠️  Multiple ONNX Runtime variants detected!\n"
+                "   Found: " + ", ".join(installed) + "\n"
+                "   This may cause conflicts. Consider keeping only one:\n"
+                "     pip uninstall onnxruntime onnxruntime-gpu onnxruntime-directml -y\n"
+                "     pip install onnxruntime-gpu    # For CUDA\n",
+                UserWarning,
+                stacklevel=3,
+            )
 
 
 def get_nvidia_info() -> dict:
@@ -315,8 +339,33 @@ def fix_onnxruntime_conflict(prefer: str = "cuda") -> bool:
         return False
 
 
+def _warn_torch_import_order():
+    """Warn if polyinfer is imported after torch on Linux.
+
+    On Linux, importing polyinfer after torch limits CUDA backend functionality
+    because we can't safely import onnxruntime-gpu without risking NCCL conflicts.
+    """
+    if sys.platform.startswith("linux") and "torch" in sys.modules:
+        warnings.warn(
+            "\n\n"
+            "⚠️  polyinfer imported after torch on Linux\n"
+            "   CUDA backends (onnxruntime-gpu, native TensorRT) are disabled\n"
+            "   to avoid conflicts with PyTorch's bundled NCCL library.\n\n"
+            "   For full CUDA support, import polyinfer BEFORE torch:\n"
+            "     import polyinfer as pi  # First\n"
+            "     import torch            # Then torch\n\n"
+            "   Available backends: openvino (CPU), iree (CPU/Vulkan)\n"
+            "   ONNX Runtime CPU is available via: pi.load('model.onnx', device='cpu')\n",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
 # Auto-setup on import
 setup_nvidia_libraries()
+
+# Warn about import order on Linux
+_warn_torch_import_order()
 
 # Check for ONNX Runtime conflicts
 _check_onnxruntime_conflicts()

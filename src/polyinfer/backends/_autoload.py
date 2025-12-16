@@ -4,6 +4,29 @@ import sys
 from polyinfer.backends.registry import register_backend
 
 
+def _should_skip_cuda_backend() -> bool:
+    """Check if CUDA-dependent backend imports should be skipped to avoid conflicts.
+
+    On Linux, importing onnxruntime-gpu or the native TensorRT backend can load
+    CUDA libraries that conflict with PyTorch's bundled libraries.
+    This causes 'undefined symbol: ncclCommWindowRegister' errors.
+
+    We skip CUDA backend auto-loading if:
+    1. We're on Linux AND
+    2. PyTorch is already loaded (torch in sys.modules)
+
+    Users can still explicitly use these backends by:
+    - Importing polyinfer before torch (recommended)
+    - Using backend="onnxruntime" or backend="tensorrt" explicitly
+    - Using device="cpu" which doesn't trigger CUDA loading
+    """
+    # Only skip on Linux when PyTorch is already loaded
+    if sys.platform.startswith("linux") and "torch" in sys.modules:
+        return True
+
+    return False
+
+
 def _should_skip_native_tensorrt() -> bool:
     """Check if native TensorRT import should be skipped to avoid conflicts.
 
@@ -37,16 +60,30 @@ def register_all():
 
     This function attempts to import and register each backend.
     Backends that fail to import (missing dependencies) are silently skipped.
+
+    IMPORTANT: On Linux when PyTorch is already loaded, we skip importing
+    ONNX Runtime GPU backend to avoid loading CUDA libraries that conflict
+    with PyTorch's bundled NCCL. Users should import polyinfer before torch
+    to get full CUDA backend support.
     """
+    skip_cuda = _should_skip_cuda_backend()
+
     # ONNX Runtime backend (Tier 1)
-    try:
-        from polyinfer.backends.onnxruntime import ONNXRuntimeBackend
+    # Skip on Linux if PyTorch is loaded - importing onnxruntime-gpu loads
+    # CUDA libraries that can conflict with PyTorch's bundled NCCL.
+    if not skip_cuda:
+        try:
+            from polyinfer.backends.onnxruntime import ONNXRuntimeBackend
 
-        register_backend("onnxruntime", ONNXRuntimeBackend)
-    except ImportError:
-        pass
+            register_backend("onnxruntime", ONNXRuntimeBackend)
+        except ImportError:
+            pass
+    else:
+        # Register a lazy-loading placeholder that defers the actual import
+        # This allows users to still use onnxruntime explicitly if they want
+        _register_lazy_onnxruntime()
 
-    # OpenVINO backend (Tier 1)
+    # OpenVINO backend (Tier 1) - CPU-focused, no CUDA conflict
     try:
         from polyinfer.backends.openvino import OpenVINOBackend
 
@@ -65,10 +102,98 @@ def register_all():
         except ImportError:
             pass
 
-    # IREE backend (Tier 2)
+    # IREE backend (Tier 2) - can use CPU/Vulkan without CUDA conflicts
     try:
         from polyinfer.backends.iree import IREEBackend
 
         register_backend("iree", IREEBackend)
     except ImportError:
         pass
+
+
+def _register_lazy_onnxruntime():
+    """Register a lazy-loading ONNX Runtime backend wrapper.
+
+    This is used when we can't safely import onnxruntime at registration time
+    (e.g., on Linux when PyTorch is already loaded). The actual import happens
+    when the backend is first used.
+    """
+    from polyinfer.backends.base import Backend
+
+    class LazyONNXRuntimeBackend(Backend):
+        """Lazy-loading wrapper for ONNX Runtime backend.
+
+        Defers the actual onnxruntime import until the backend is used,
+        allowing users to control when CUDA libraries are loaded.
+        """
+
+        _real_backend = None
+        _import_attempted = False
+        _import_error = None
+
+        @classmethod
+        def _ensure_loaded(cls):
+            """Load the real backend on first use."""
+            if cls._import_attempted:
+                if cls._import_error:
+                    raise cls._import_error
+                return
+
+            cls._import_attempted = True
+            try:
+                from polyinfer.backends.onnxruntime.backend import ONNXRuntimeBackend
+                cls._real_backend = ONNXRuntimeBackend()
+            except ImportError as e:
+                cls._import_error = RuntimeError(
+                    f"ONNX Runtime not available: {e}. "
+                    "Install with: pip install onnxruntime or onnxruntime-gpu"
+                )
+                raise cls._import_error
+
+        @property
+        def name(self) -> str:
+            return "onnxruntime"
+
+        @property
+        def supported_devices(self) -> list[str]:
+            # Return basic info without importing onnxruntime
+            # The actual devices depend on whether onnxruntime-gpu is installed
+            return ["cpu"]  # Safe default, actual devices known after load
+
+        @property
+        def version(self) -> str:
+            try:
+                self._ensure_loaded()
+                return self._real_backend.version
+            except Exception:
+                return "not loaded"
+
+        @property
+        def priority(self) -> int:
+            return 60
+
+        def is_available(self) -> bool:
+            # Check if onnxruntime package exists without importing it
+            try:
+                import importlib.metadata as metadata
+                metadata.version("onnxruntime")
+                return True
+            except Exception:
+                pass
+            try:
+                import importlib.metadata as metadata
+                metadata.version("onnxruntime-gpu")
+                return True
+            except Exception:
+                pass
+            return False
+
+        def load(self, model_path: str, device: str = "cpu", **kwargs):
+            """Load model - this triggers the actual onnxruntime import."""
+            self._ensure_loaded()
+            return self._real_backend.load(model_path, device, **kwargs)
+
+    try:
+        register_backend("onnxruntime", LazyONNXRuntimeBackend)
+    except Exception:
+        pass  # Registration failed, skip silently
