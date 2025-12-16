@@ -106,44 +106,29 @@ def _find_nvidia_lib_dirs() -> list[Path]:
 def _setup_ld_library_path():
     """Add NVIDIA library directories to LD_LIBRARY_PATH (Linux only).
 
-    Also pre-loads critical libraries using ctypes to make them available
-    to subsequently loaded libraries (like onnxruntime).
+    Note: We intentionally do NOT preload libraries with ctypes on Linux.
+    Preloading can cause conflicts with PyTorch's CUDA libraries, especially
+    when torch is pre-installed (e.g., on Google Colab). PyTorch and ONNX Runtime
+    can find their own libraries without our help.
     """
     if sys.platform == "win32":
         return
-
-    import ctypes
 
     lib_dirs = _find_nvidia_lib_dirs()
 
     if not lib_dirs:
         return
 
-    # Set LD_LIBRARY_PATH for any subprocesses
+    # Set LD_LIBRARY_PATH for any subprocesses (e.g., iree-compile)
+    # This is safe and doesn't affect the current process's library loading
     lib_additions = os.pathsep.join(str(d) for d in lib_dirs)
     current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
     if lib_additions not in current_ld_path:
         os.environ["LD_LIBRARY_PATH"] = lib_additions + os.pathsep + current_ld_path
 
-    # Pre-load critical libraries using ctypes with RTLD_GLOBAL
-    # This makes them available to subsequently loaded libraries
-    critical_libs = [
-        "libcudart.so.12",
-        "libcublas.so.12",
-        "libcublasLt.so.12",
-        "libcudnn.so.9",
-        "libnvinfer.so.10",
-    ]
-
-    for lib_name in critical_libs:
-        for lib_dir in lib_dirs:
-            lib_path = lib_dir / lib_name
-            if lib_path.exists():
-                try:
-                    ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
-                except OSError:
-                    pass  # Library might have unmet deps, that's OK
-                break
+    # NOTE: We do NOT preload libraries with ctypes anymore.
+    # This was causing conflicts with PyTorch's bundled CUDA/NCCL libraries,
+    # resulting in "undefined symbol: ncclCommWindowRegister" errors on Colab.
 
 
 def setup_nvidia_libraries():
