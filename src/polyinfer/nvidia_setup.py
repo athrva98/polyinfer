@@ -137,87 +137,135 @@ def _setup_ld_library_path():
 _tensorrt_paths_configured = False
 
 
-def setup_tensorrt_paths():
-    """Setup TensorRT library paths for ONNX Runtime TensorRT EP.
+def _find_tensorrt_lib_dirs() -> list[Path]:
+    """Find directories containing TensorRT libraries.
 
-    This function should be called AFTER torch is imported but BEFORE
-    using the TensorRT execution provider. It adds TensorRT libraries
-    to LD_LIBRARY_PATH so ONNX Runtime can find them.
+    Returns:
+        List of paths that contain libnvinfer.so (Linux) or nvinfer*.dll (Windows)
+    """
+    tensorrt_dirs = []
+    site_packages = _get_site_packages()
+
+    # 1. Check pip-installed TensorRT packages
+    tensorrt_libs = site_packages / "tensorrt_libs"
+    if tensorrt_libs.exists():
+        tensorrt_dirs.append(tensorrt_libs)
+
+    # TensorRT bindings
+    tensorrt_bindings = site_packages / "tensorrt_bindings"
+    if tensorrt_bindings.exists():
+        tensorrt_dirs.append(tensorrt_bindings)
+
+    # Also check for tensorrt_cu12_libs (older package naming)
+    for pattern in ["tensorrt*libs*", "tensorrt*"]:
+        for path in site_packages.glob(pattern):
+            if path.is_dir() and path not in tensorrt_dirs:
+                if sys.platform == "win32":
+                    if any(path.glob("nvinfer*.dll")):
+                        tensorrt_dirs.append(path)
+                else:
+                    if any(path.glob("*.so*")):
+                        tensorrt_dirs.append(path)
+
+    # 2. Check system-level TensorRT installations (Linux only)
+    if sys.platform != "win32":
+        system_tensorrt_paths = [
+            "/usr/lib/x86_64-linux-gnu",  # Debian/Ubuntu system libs
+            "/usr/local/lib",
+            "/usr/lib",
+            "/opt/tensorrt/lib",  # Common TensorRT install location
+            "/usr/lib64-nvidia",  # Colab uses this
+        ]
+
+        for sys_path in system_tensorrt_paths:
+            p = Path(sys_path)
+            if p.exists() and p not in tensorrt_dirs:
+                if any(p.glob("libnvinfer.so*")):
+                    tensorrt_dirs.append(p)
+
+    return tensorrt_dirs
+
+
+def setup_tensorrt_paths() -> bool:
+    """Setup TensorRT libraries for ONNX Runtime TensorRT EP.
+
+    This function should be called BEFORE using the TensorRT execution provider.
+    On Linux, it preloads TensorRT libraries using ctypes.CDLL with RTLD_GLOBAL,
+    which makes the symbols available to ONNX Runtime when it loads the TensorRT EP.
+
+    On Windows, it adds directories to the DLL search path and PATH.
 
     This is safe to call after torch because:
-    1. We only add TensorRT-specific paths, not CUDA/NCCL paths
+    1. We only load TensorRT-specific libraries, not CUDA/NCCL
     2. PyTorch has already loaded its CUDA libraries
     3. TensorRT doesn't conflict with PyTorch's NCCL
 
     Returns:
-        True if paths were configured, False if already configured or not needed
+        True if libraries were loaded/configured, False if already done or not needed
     """
     global _tensorrt_paths_configured
 
     if _tensorrt_paths_configured:
         return False
 
-    if sys.platform != "linux" and not sys.platform.startswith("linux"):
+    tensorrt_dirs = _find_tensorrt_lib_dirs()
+
+    if not tensorrt_dirs:
         _tensorrt_paths_configured = True
         return False
 
-    tensorrt_paths = []
+    if sys.platform == "win32":
+        # Windows: Add to DLL search path
+        for tensorrt_dir in tensorrt_dirs:
+            try:
+                os.add_dll_directory(str(tensorrt_dir))
+            except (OSError, AttributeError):
+                pass
+            # Also add to PATH
+            current_path = os.environ.get("PATH", "")
+            tensorrt_path = str(tensorrt_dir)
+            if tensorrt_path not in current_path:
+                os.environ["PATH"] = tensorrt_path + os.pathsep + current_path
+    else:
+        # Linux: Preload TensorRT libraries using ctypes
+        # Setting LD_LIBRARY_PATH at runtime doesn't work because the dynamic
+        # linker only reads it at process startup. Instead, we use ctypes.CDLL
+        # with RTLD_GLOBAL to load the libraries and make their symbols available.
+        import ctypes
 
-    # 1. Check pip-installed TensorRT packages
-    site_packages = _get_site_packages()
+        # Libraries to preload in order (dependencies first)
+        tensorrt_libs_to_load = [
+            "libnvinfer.so.10",
+            "libnvinfer.so",
+            "libnvinfer_plugin.so.10",
+            "libnvinfer_plugin.so",
+        ]
 
-    # TensorRT libs from pip package
-    tensorrt_libs = site_packages / "tensorrt_libs"
-    if tensorrt_libs.exists():
-        tensorrt_paths.append(str(tensorrt_libs))
+        loaded_any = False
+        for tensorrt_dir in tensorrt_dirs:
+            for lib_name in tensorrt_libs_to_load:
+                lib_path = tensorrt_dir / lib_name
+                if lib_path.exists():
+                    try:
+                        # RTLD_GLOBAL makes symbols available to subsequently loaded libraries
+                        ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
+                        loaded_any = True
+                    except OSError:
+                        # Library might have unmet dependencies, continue
+                        pass
 
-    # TensorRT bindings
-    tensorrt_bindings = site_packages / "tensorrt_bindings"
-    if tensorrt_bindings.exists():
-        tensorrt_paths.append(str(tensorrt_bindings))
-
-    # Also check for tensorrt_cu12_libs (older package naming)
-    for pattern in ["tensorrt*libs*", "tensorrt*"]:
-        for path in site_packages.glob(pattern):
-            if path.is_dir() and str(path) not in tensorrt_paths:
-                if any(path.glob("*.so*")):
-                    tensorrt_paths.append(str(path))
-
-    # 2. Check system-level TensorRT installations (e.g., Colab, Docker)
-    system_tensorrt_paths = [
-        "/usr/lib/x86_64-linux-gnu",  # Debian/Ubuntu system libs
-        "/usr/local/lib",
-        "/usr/lib",
-        "/opt/tensorrt/lib",  # Common TensorRT install location
-    ]
-
-    for sys_path in system_tensorrt_paths:
-        p = Path(sys_path)
-        if p.exists():
-            # Check if this directory has TensorRT libraries
-            if any(p.glob("libnvinfer.so*")):
-                if str(p) not in tensorrt_paths:
-                    tensorrt_paths.append(str(p))
-
-    # 3. Check NVIDIA driver library path (Colab uses this)
-    nvidia_lib = Path("/usr/lib64-nvidia")
-    if nvidia_lib.exists() and str(nvidia_lib) not in tensorrt_paths:
-        # Only add if it has TensorRT libs
-        if any(nvidia_lib.glob("libnvinfer.so*")):
-            tensorrt_paths.append(str(nvidia_lib))
-
-    if tensorrt_paths:
-        current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
-        new_paths = [p for p in tensorrt_paths if p not in current_ld_path]
-
-        if new_paths:
-            if current_ld_path:
-                os.environ["LD_LIBRARY_PATH"] = ":".join(new_paths) + ":" + current_ld_path
-            else:
-                os.environ["LD_LIBRARY_PATH"] = ":".join(new_paths)
+        # Also update LD_LIBRARY_PATH for any subprocess calls
+        if tensorrt_dirs:
+            current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+            new_paths = [str(p) for p in tensorrt_dirs if str(p) not in current_ld_path]
+            if new_paths:
+                if current_ld_path:
+                    os.environ["LD_LIBRARY_PATH"] = ":".join(new_paths) + ":" + current_ld_path
+                else:
+                    os.environ["LD_LIBRARY_PATH"] = ":".join(new_paths)
 
     _tensorrt_paths_configured = True
-    return bool(tensorrt_paths)
+    return True
 
 
 def setup_nvidia_libraries():
