@@ -29,7 +29,7 @@ __version__ = "0.1.0"
 # Auto-setup NVIDIA libraries BEFORE importing anything else
 # This ensures CUDA, cuDNN, TensorRT DLLs are findable
 from polyinfer import nvidia_setup as _nvidia_setup
-from polyinfer.nvidia_setup import fix_onnxruntime_conflict, get_nvidia_info
+from polyinfer.nvidia_setup import fix_onnxruntime_conflict, get_nvidia_info, setup_tensorrt_paths
 
 from polyinfer.model import load, Model
 from polyinfer.discovery import (
@@ -63,6 +63,7 @@ __all__ = [
     # Setup helpers
     "fix_onnxruntime_conflict",
     "get_nvidia_info",
+    "setup_tensorrt_paths",
     # Version
     "__version__",
 ]

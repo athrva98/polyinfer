@@ -37,7 +37,7 @@ cd polyinfer
 pip install -e ".[nvidia]"      # Or any of the extras above
 ```
 
-**No manual CUDA/cuDNN installation required.** Dependencies are automatically downloaded and configured. Works on Windows, Linux, and WSL2.
+**No manual CUDA/cuDNN installation required.** Dependencies are automatically downloaded and configured. Works on Windows, Linux, WSL2, and Google Colab.
 
 ## Quick Start
 
@@ -124,7 +124,9 @@ polyinfer benchmark model.onnx --device tensorrt
 polyinfer run model.onnx --device cuda
 ```
 
-## Performance (YOLOv8n @ 640x640, RTX 5060)
+## Performance
+
+### YOLOv8n @ 640x640 (RTX 5060)
 
 | Backend | Latency | FPS | Speedup |
 |---------|---------|-----|---------|
@@ -132,6 +134,14 @@ polyinfer run model.onnx --device cuda
 | CUDA | 6.6 ms | 151 | 3.4x |
 | OpenVINO (CPU) | 16.2 ms | 62 | 1.4x |
 | ONNX Runtime (CPU) | 22.6 ms | 44 | 1.0x |
+
+### ResNet18 @ 224x224 (Google Colab T4)
+
+| Backend | Latency | FPS | Speedup |
+|---------|---------|-----|---------|
+| TensorRT | 1.6 ms | **639** | 2.6x |
+| CUDA | 4.1 ms | 245 | 1.0x |
+| ONNX Runtime (CPU) | 43.7 ms | 23 | 0.09x |
 
 ## Supported Backends
 
@@ -252,6 +262,23 @@ python -c "import polyinfer as pi; print(pi.list_devices())"
 - WSL2 with Ubuntu (or other distro)
 - NVIDIA GPU driver installed on Windows (not in WSL)
 - No need to install CUDA in WSL, polyinfer handles it automatically
+
+#### Google Colab
+
+```python
+# Install polyinfer with NVIDIA support
+!pip install -q "polyinfer[nvidia] @ git+https://github.com/athrva98/polyinfer.git"
+
+# Verify installation
+import polyinfer as pi
+print(pi.list_devices())
+# Output: [cpu, cuda, tensorrt, vulkan]
+
+# TensorRT works out of the box on Colab!
+model = pi.load("model.onnx", device="tensorrt")  # 638 FPS on ResNet18!
+```
+
+**Note:** TensorRT EP is automatically configured on Colab. The `tensorrt-cu12-libs` package provides TensorRT libraries, and PolyInfer automatically preloads them via ctypes before ONNX Runtime is imported.
 
 #### macOS
 
@@ -635,6 +662,47 @@ pip install torch torchvision --force-reinstall
 
 **Prevention:** Use ONNX Runtime's TensorRT Execution Provider instead (works with `device="tensorrt"` by default). It provides similar performance without dependency conflicts. Only install native TensorRT if you need advanced TensorRT features.
 
+#### TensorRT EP: "RegisterTensorRTPluginsAsCustomOps" error
+
+**Cause:** ONNX Runtime can't find TensorRT libraries, even though `TensorrtExecutionProvider` shows as available.
+
+**Solution 1: Check if TensorRT libraries are installed**
+```bash
+pip install tensorrt-cu12-libs  # Lightweight TensorRT libs (no cuda-python conflict)
+```
+
+**Solution 2: Check library detection**
+```python
+import polyinfer as pi
+info = pi.get_nvidia_info()
+print("TensorRT dirs:", info['tensorrt_setup']['tensorrt_dirs'])
+print("Preloaded libs:", info['tensorrt_setup']['preloaded_libs'])
+```
+
+If `tensorrt_dirs` is empty, PolyInfer couldn't find the TensorRT libraries. This usually means:
+- `tensorrt-cu12-libs` is not installed
+- The libraries are in an unexpected location
+
+**Solution 3: Manual preload (advanced)**
+```python
+import ctypes
+from pathlib import Path
+import sys
+
+# Find tensorrt_libs directory
+site_packages = Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "dist-packages"
+tensorrt_libs = site_packages / "tensorrt_libs"
+
+# Preload before importing onnxruntime
+for lib in ["libnvinfer.so.10", "libnvinfer_plugin.so.10", "libnvonnxparser.so.10"]:
+    lib_path = tensorrt_libs / lib
+    if lib_path.exists():
+        ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
+
+# Now import polyinfer
+import polyinfer as pi
+```
+
 #### "iree-import-onnx not found"
 
 **Cause:** IREE compiler tools not installed.
@@ -680,6 +748,24 @@ for d in pi.list_devices():
 from polyinfer.nvidia_setup import get_nvidia_info
 import json
 print(json.dumps(get_nvidia_info(), indent=2))
+```
+
+#### Check TensorRT Setup
+
+```python
+import polyinfer as pi
+info = pi.get_nvidia_info()
+
+print("TensorRT Setup:")
+print(f"  Configured: {info['tensorrt_setup']['configured']}")
+print(f"  TensorRT dirs: {info['tensorrt_setup']['tensorrt_dirs']}")
+print(f"  Preloaded libs: {info['tensorrt_setup']['preloaded_libs']}")
+
+# Check if TensorRT EP is available
+import onnxruntime as ort
+providers = ort.get_available_providers()
+print(f"\nONNX Runtime providers: {providers}")
+print(f"TensorRT EP available: {'TensorrtExecutionProvider' in providers}")
 ```
 
 #### Verbose ONNX Runtime Logging

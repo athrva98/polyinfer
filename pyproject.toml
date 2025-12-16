@@ -68,11 +68,12 @@ cpu = [
     "torchvision>=0.15",
 ]
 
-# NVIDIA GPU - CUDA inference (without native TensorRT to avoid conflicts)
-# For native TensorRT, install separately: pip install tensorrt-cu12 cuda-python
-# The onnxruntime-gpu package includes TensorRT Execution Provider as fallback
+# NVIDIA GPU - CUDA inference with TensorRT EP support
+# tensorrt-cu12-libs provides libnvinfer for ONNX Runtime TensorRT EP
+# Note: This is the library-only package, NOT tensorrt-cu12 which pulls cuda-python
 nvidia = [
     "onnxruntime-gpu>=1.17",
+    "tensorrt-cu12-libs>=10.0",  # TensorRT libs only (no cuda-python conflict)
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
     "torch>=2.0",

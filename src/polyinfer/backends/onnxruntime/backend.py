@@ -92,6 +92,59 @@ class ONNXRuntimeModel(CompiledModel):
         return dict(zip(self._output_names, outputs))
 
 
+def _verify_tensorrt_ep_works() -> bool:
+    """Verify TensorRT EP actually works by checking library availability.
+
+    ONNX Runtime may report TensorrtExecutionProvider as available even when
+    the TensorRT libraries aren't properly installed or accessible. This causes
+    session creation to fail with RegisterTensorRTPluginsAsCustomOps errors.
+
+    Returns:
+        True if TensorRT EP is likely to work, False otherwise.
+    """
+    import sys
+
+    if sys.platform == "win32":
+        # On Windows, check if nvinfer DLLs are findable
+        import ctypes
+        try:
+            ctypes.CDLL("nvinfer_10.dll")
+            return True
+        except OSError:
+            pass
+        try:
+            ctypes.CDLL("nvinfer.dll")
+            return True
+        except OSError:
+            pass
+        return False
+    else:
+        # On Linux, check if libnvinfer is loaded or loadable
+        import ctypes
+
+        # First check if already loaded (from our preload)
+        try:
+            # Try to find the symbol in already-loaded libraries
+            ctypes.CDLL(None).nvinfer_version
+            return True
+        except (OSError, AttributeError):
+            pass
+
+        # Try to load it
+        for lib_name in ["libnvinfer.so.10", "libnvinfer.so.8", "libnvinfer.so"]:
+            try:
+                ctypes.CDLL(lib_name, mode=ctypes.RTLD_GLOBAL)
+                return True
+            except OSError:
+                pass
+
+        return False
+
+
+# Cache the TensorRT EP verification result
+_tensorrt_ep_verified: bool | None = None
+
+
 class ONNXRuntimeBackend(Backend):
     """ONNX Runtime backend supporting multiple execution providers."""
 
@@ -102,6 +155,8 @@ class ONNXRuntimeBackend(Backend):
     @property
     def supported_devices(self) -> list[str]:
         """Return devices supported by available providers."""
+        global _tensorrt_ep_verified
+
         if not ONNXRUNTIME_AVAILABLE:
             return []
 
@@ -111,7 +166,11 @@ class ONNXRuntimeBackend(Backend):
         if "CUDAExecutionProvider" in providers:
             devices.append("cuda")
         if "TensorrtExecutionProvider" in providers:
-            devices.append("tensorrt")
+            # Verify TensorRT EP actually works before advertising it
+            if _tensorrt_ep_verified is None:
+                _tensorrt_ep_verified = _verify_tensorrt_ep_works()
+            if _tensorrt_ep_verified:
+                devices.append("tensorrt")
         if "DmlExecutionProvider" in providers:
             devices.append("directml")
         if "ROCMExecutionProvider" in providers:
@@ -203,6 +262,12 @@ class ONNXRuntimeBackend(Backend):
         # Normalize device
         device_type = device.split(":")[0] if ":" in device else device
         device_id = int(device.split(":")[1]) if ":" in device else 0
+
+        # Setup TensorRT library paths if TensorRT is requested
+        # This must happen BEFORE creating the session
+        if device_type == "tensorrt":
+            from polyinfer.nvidia_setup import setup_tensorrt_paths
+            setup_tensorrt_paths()
 
         # Get providers for device
         providers = kwargs.pop("providers", None)
@@ -302,13 +367,49 @@ class ONNXRuntimeBackend(Backend):
         if "enable_cpu_mem_arena" in kwargs:
             sess_options.enable_cpu_mem_arena = kwargs["enable_cpu_mem_arena"]
 
-        # Create session
-        session = ort.InferenceSession(
-            model_path,
-            sess_options=sess_options,
-            providers=providers,
-            provider_options=provider_options if provider_options else None,
-        )
+        # Create session with fallback handling for TensorRT EP issues
+        # TensorRT EP can fail during session creation even if it shows as available
+        # (e.g., RegisterTensorRTPluginsAsCustomOps error). In this case, fall back
+        # to CUDA EP if available.
+        try:
+            session = ort.InferenceSession(
+                model_path,
+                sess_options=sess_options,
+                providers=providers,
+                provider_options=provider_options if provider_options else None,
+            )
+        except RuntimeError as e:
+            error_msg = str(e)
+            # Check if this is a TensorRT-specific error and we can fall back
+            if "TensorRT" in error_msg or "RegisterTensorRTPluginsAsCustomOps" in error_msg:
+                if "TensorrtExecutionProvider" in providers:
+                    # Try falling back to CUDA EP
+                    fallback_providers = [p for p in providers if p != "TensorrtExecutionProvider"]
+                    fallback_options = [
+                        opt for i, opt in enumerate(provider_options)
+                        if providers[i] != "TensorrtExecutionProvider"
+                    ] if provider_options else None
+
+                    if fallback_providers:
+                        import warnings
+                        warnings.warn(
+                            f"TensorRT EP failed ({error_msg[:100]}...), "
+                            f"falling back to {fallback_providers[0]}",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        session = ort.InferenceSession(
+                            model_path,
+                            sess_options=sess_options,
+                            providers=fallback_providers,
+                            provider_options=fallback_options,
+                        )
+                    else:
+                        raise
+                else:
+                    raise
+            else:
+                raise
 
         # Get the actual provider being used
         active_provider = session.get_providers()[0]

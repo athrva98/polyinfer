@@ -88,6 +88,8 @@ dmypy.json
 .project
 .pydevproject
 .settings/
+.claude/
+.venv-test/
 
 # Jupyter Notebook
 .ipynb_checkpoints
