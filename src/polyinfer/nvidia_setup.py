@@ -104,31 +104,18 @@ def _find_nvidia_lib_dirs() -> list[Path]:
 
 
 def _setup_ld_library_path():
-    """Add NVIDIA library directories to LD_LIBRARY_PATH (Linux only).
+    """Setup for Linux - currently disabled to avoid PyTorch conflicts.
 
-    Note: We intentionally do NOT preload libraries with ctypes on Linux.
-    Preloading can cause conflicts with PyTorch's CUDA libraries, especially
-    when torch is pre-installed (e.g., on Google Colab). PyTorch and ONNX Runtime
-    can find their own libraries without our help.
+    On Linux, PyTorch and ONNX Runtime bundle their own CUDA libraries and
+    handle library loading themselves. Modifying LD_LIBRARY_PATH can cause
+    conflicts with PyTorch's bundled NCCL, resulting in errors like:
+    "undefined symbol: ncclCommWindowRegister"
+
+    This function is intentionally a no-op on Linux.
     """
-    if sys.platform == "win32":
-        return
-
-    lib_dirs = _find_nvidia_lib_dirs()
-
-    if not lib_dirs:
-        return
-
-    # Set LD_LIBRARY_PATH for any subprocesses (e.g., iree-compile)
-    # This is safe and doesn't affect the current process's library loading
-    lib_additions = os.pathsep.join(str(d) for d in lib_dirs)
-    current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
-    if lib_additions not in current_ld_path:
-        os.environ["LD_LIBRARY_PATH"] = lib_additions + os.pathsep + current_ld_path
-
-    # NOTE: We do NOT preload libraries with ctypes anymore.
-    # This was causing conflicts with PyTorch's bundled CUDA/NCCL libraries,
-    # resulting in "undefined symbol: ncclCommWindowRegister" errors on Colab.
+    # Completely disabled on Linux to avoid PyTorch conflicts
+    # PyTorch and ONNX Runtime can find their own libraries
+    pass
 
 
 def setup_nvidia_libraries():
