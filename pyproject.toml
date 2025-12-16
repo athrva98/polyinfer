@@ -59,7 +59,8 @@ cpu = [
 ]
 
 # NVIDIA GPU - CUDA + TensorRT (native)
-# Pin torch 2.4.0 (CUDA 12.1) - compatible with tensorrt-cu12-libs
+# tensorrt-cu12 is built with CUDA 12.9 but compatible with all CUDA 12.x
+# torch 2.4+ uses CUDA 12.1-12.6, all work with tensorrt-cu12
 nvidia = [
     "onnxruntime-gpu>=1.17",
     "tensorrt-cu12>=10.0",
@@ -68,8 +69,8 @@ nvidia = [
     "cuda-python>=12.0",
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
-    "torch==2.4.0",
-    "torchvision==0.19.0",
+    "torch>=2.4,<3.0",
+    "torchvision>=0.19",
 ]
 
 # AMD GPU (Windows DirectML)
@@ -111,7 +112,7 @@ tier2 = [
 ]
 
 # === ALL BACKENDS ===
-# Pin torch 2.4.0 (CUDA 12.1) - compatible with tensorrt-cu12-libs
+# tensorrt-cu12 is built with CUDA 12.9 but compatible with all CUDA 12.x
 all = [
     "onnxruntime>=1.17",
     "openvino>=2024.0",
@@ -122,8 +123,8 @@ all = [
     "cuda-python>=12.0",
     "iree-base-compiler>=3.0",
     "iree-base-runtime>=3.0",
-    "torch==2.4.0",
-    "torchvision==0.19.0",
+    "torch>=2.4,<3.0",
+    "torchvision>=0.19",
 ]
 
 # === Example dependencies ===
