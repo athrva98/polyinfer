@@ -204,6 +204,12 @@ class ONNXRuntimeBackend(Backend):
         device_type = device.split(":")[0] if ":" in device else device
         device_id = int(device.split(":")[1]) if ":" in device else 0
 
+        # Setup TensorRT library paths if TensorRT is requested
+        # This must happen BEFORE creating the session
+        if device_type == "tensorrt":
+            from polyinfer.nvidia_setup import setup_tensorrt_paths
+            setup_tensorrt_paths()
+
         # Get providers for device
         providers = kwargs.pop("providers", None)
         if providers is None:

@@ -118,6 +118,69 @@ def _setup_ld_library_path():
     pass
 
 
+# Track if TensorRT paths have been set up
+_tensorrt_paths_configured = False
+
+
+def setup_tensorrt_paths():
+    """Setup TensorRT library paths for ONNX Runtime TensorRT EP.
+
+    This function should be called AFTER torch is imported but BEFORE
+    using the TensorRT execution provider. It adds TensorRT libraries
+    to LD_LIBRARY_PATH so ONNX Runtime can find them.
+
+    This is safe to call after torch because:
+    1. We only add TensorRT-specific paths, not CUDA/NCCL paths
+    2. PyTorch has already loaded its CUDA libraries
+    3. TensorRT doesn't conflict with PyTorch's NCCL
+
+    Returns:
+        True if paths were configured, False if already configured or not needed
+    """
+    global _tensorrt_paths_configured
+
+    if _tensorrt_paths_configured:
+        return False
+
+    if sys.platform != "linux" and not sys.platform.startswith("linux"):
+        _tensorrt_paths_configured = True
+        return False
+
+    site_packages = _get_site_packages()
+    tensorrt_paths = []
+
+    # TensorRT libs from pip package
+    tensorrt_libs = site_packages / "tensorrt_libs"
+    if tensorrt_libs.exists():
+        tensorrt_paths.append(str(tensorrt_libs))
+
+    # TensorRT bindings
+    tensorrt_bindings = site_packages / "tensorrt_bindings"
+    if tensorrt_bindings.exists():
+        tensorrt_paths.append(str(tensorrt_bindings))
+
+    # Also check for tensorrt_cu12_libs (older package naming)
+    for pattern in ["tensorrt*libs*", "tensorrt*"]:
+        for path in site_packages.glob(pattern):
+            if path.is_dir() and str(path) not in tensorrt_paths:
+                # Check if it has .so files
+                if any(path.glob("*.so*")):
+                    tensorrt_paths.append(str(path))
+
+    if tensorrt_paths:
+        current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+        new_paths = [p for p in tensorrt_paths if p not in current_ld_path]
+
+        if new_paths:
+            if current_ld_path:
+                os.environ["LD_LIBRARY_PATH"] = ":".join(new_paths) + ":" + current_ld_path
+            else:
+                os.environ["LD_LIBRARY_PATH"] = ":".join(new_paths)
+
+    _tensorrt_paths_configured = True
+    return bool(tensorrt_paths)
+
+
 def setup_nvidia_libraries():
     """Setup NVIDIA libraries for use with PolyInfer.
 
