@@ -13,19 +13,26 @@ from pathlib import Path
 
 
 def _get_site_packages() -> Path:
-    """Get the site-packages directory."""
-    # Try to find an actual existing site-packages directory
+    """Get the site-packages or dist-packages directory."""
+    # Try to find an existing packages directory from sys.path
+    # Check both site-packages (pip/venv) and dist-packages (Debian/Ubuntu/Colab)
     for path in sys.path:
-        if "site-packages" in path:
+        if "site-packages" in path or "dist-packages" in path:
             p = Path(path)
             if p.exists():
                 return p
 
     # Fallback: try common locations
+    py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
     candidates = [
-        Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages",
+        # Standard site-packages locations
+        Path(sys.prefix) / "lib" / py_ver / "site-packages",
         Path(sys.prefix) / "Lib" / "site-packages",  # Windows
-        Path("/usr/local/lib") / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages",
+        Path("/usr/local/lib") / py_ver / "site-packages",
+        # Debian/Ubuntu/Colab use dist-packages
+        Path(sys.prefix) / "lib" / py_ver / "dist-packages",
+        Path("/usr/local/lib") / py_ver / "dist-packages",
+        Path("/usr/lib") / "python3" / "dist-packages",
     ]
     for candidate in candidates:
         if candidate.exists():

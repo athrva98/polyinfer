@@ -92,6 +92,59 @@ class ONNXRuntimeModel(CompiledModel):
         return dict(zip(self._output_names, outputs))
 
 
+def _verify_tensorrt_ep_works() -> bool:
+    """Verify TensorRT EP actually works by checking library availability.
+
+    ONNX Runtime may report TensorrtExecutionProvider as available even when
+    the TensorRT libraries aren't properly installed or accessible. This causes
+    session creation to fail with RegisterTensorRTPluginsAsCustomOps errors.
+
+    Returns:
+        True if TensorRT EP is likely to work, False otherwise.
+    """
+    import sys
+
+    if sys.platform == "win32":
+        # On Windows, check if nvinfer DLLs are findable
+        import ctypes
+        try:
+            ctypes.CDLL("nvinfer_10.dll")
+            return True
+        except OSError:
+            pass
+        try:
+            ctypes.CDLL("nvinfer.dll")
+            return True
+        except OSError:
+            pass
+        return False
+    else:
+        # On Linux, check if libnvinfer is loaded or loadable
+        import ctypes
+
+        # First check if already loaded (from our preload)
+        try:
+            # Try to find the symbol in already-loaded libraries
+            ctypes.CDLL(None).nvinfer_version
+            return True
+        except (OSError, AttributeError):
+            pass
+
+        # Try to load it
+        for lib_name in ["libnvinfer.so.10", "libnvinfer.so.8", "libnvinfer.so"]:
+            try:
+                ctypes.CDLL(lib_name, mode=ctypes.RTLD_GLOBAL)
+                return True
+            except OSError:
+                pass
+
+        return False
+
+
+# Cache the TensorRT EP verification result
+_tensorrt_ep_verified: bool | None = None
+
+
 class ONNXRuntimeBackend(Backend):
     """ONNX Runtime backend supporting multiple execution providers."""
 
@@ -102,6 +155,8 @@ class ONNXRuntimeBackend(Backend):
     @property
     def supported_devices(self) -> list[str]:
         """Return devices supported by available providers."""
+        global _tensorrt_ep_verified
+
         if not ONNXRUNTIME_AVAILABLE:
             return []
 
@@ -111,7 +166,11 @@ class ONNXRuntimeBackend(Backend):
         if "CUDAExecutionProvider" in providers:
             devices.append("cuda")
         if "TensorrtExecutionProvider" in providers:
-            devices.append("tensorrt")
+            # Verify TensorRT EP actually works before advertising it
+            if _tensorrt_ep_verified is None:
+                _tensorrt_ep_verified = _verify_tensorrt_ep_works()
+            if _tensorrt_ep_verified:
+                devices.append("tensorrt")
         if "DmlExecutionProvider" in providers:
             devices.append("directml")
         if "ROCMExecutionProvider" in providers:

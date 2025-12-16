@@ -4,6 +4,37 @@ import sys
 from polyinfer.backends.registry import register_backend
 
 
+def _verify_tensorrt_libs_available() -> bool:
+    """Check if TensorRT libraries are actually available.
+
+    This is a lightweight check that verifies libnvinfer can be loaded,
+    without importing onnxruntime. Used by the lazy backend to avoid
+    advertising tensorrt device when it won't actually work.
+
+    Returns:
+        True if TensorRT libraries are loadable, False otherwise.
+    """
+    import ctypes
+
+    if sys.platform == "win32":
+        for lib_name in ["nvinfer_10.dll", "nvinfer.dll"]:
+            try:
+                ctypes.CDLL(lib_name)
+                return True
+            except OSError:
+                pass
+        return False
+    else:
+        # On Linux, try to load libnvinfer
+        for lib_name in ["libnvinfer.so.10", "libnvinfer.so.8", "libnvinfer.so"]:
+            try:
+                ctypes.CDLL(lib_name, mode=ctypes.RTLD_GLOBAL)
+                return True
+            except OSError:
+                pass
+        return False
+
+
 def _should_use_lazy_onnxruntime() -> bool:
     """Check if ONNX Runtime should use lazy loading to avoid CUDA conflicts.
 
@@ -257,7 +288,11 @@ def _register_lazy_onnxruntime():
                 import importlib.metadata as metadata
                 # If onnxruntime-gpu is installed, CUDA devices are likely available
                 metadata.version("onnxruntime-gpu")
-                devices.extend(["cuda", "tensorrt"])
+                devices.append("cuda")
+                # Only advertise tensorrt if libraries are actually available
+                # TensorRT EP often fails even when ORT reports it as available
+                if _verify_tensorrt_libs_available():
+                    devices.append("tensorrt")
             except Exception:
                 pass
             return devices
