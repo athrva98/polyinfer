@@ -400,18 +400,29 @@ class TensorRTBackend(Backend):
         opt_shapes = kwargs.get("opt_shapes", {})
         max_shapes = kwargs.get("max_shapes", {})
 
-        if min_shapes or opt_shapes or max_shapes:
+        # Check if any input has dynamic dimensions
+        has_dynamic = False
+        for i in range(network.num_inputs):
+            shape = network.get_input(i).shape
+            if -1 in shape or any(d < 0 for d in shape):
+                has_dynamic = True
+                break
+
+        # Always create optimization profile if network has dynamic shapes
+        if has_dynamic or min_shapes or opt_shapes or max_shapes:
             profile = builder.create_optimization_profile()
             for i in range(network.num_inputs):
                 input_tensor = network.get_input(i)
                 name = input_tensor.name
-                shape = input_tensor.shape
+                shape = list(input_tensor.shape)
 
                 # Check if this input has dynamic dimensions
                 if -1 in shape or any(d < 0 for d in shape):
-                    min_shape = min_shapes.get(name, tuple(max(1, d) for d in shape))
-                    opt_shape = opt_shapes.get(name, min_shape)
-                    max_shape = max_shapes.get(name, opt_shape)
+                    # Replace dynamic dims with defaults (1 for batch, keep others)
+                    default_shape = tuple(1 if d < 0 else d for d in shape)
+                    min_shape = min_shapes.get(name, default_shape)
+                    opt_shape = opt_shapes.get(name, default_shape)
+                    max_shape = max_shapes.get(name, tuple(16 if d < 0 else d for d in shape))
                     profile.set_shape(name, min_shape, opt_shape, max_shape)
 
             config.add_optimization_profile(profile)
