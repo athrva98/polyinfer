@@ -116,12 +116,92 @@ def register_all():
         except ImportError:
             pass
 
-    # IREE backend (Tier 2) - can use CPU/Vulkan without CUDA conflicts
-    try:
-        from polyinfer.backends.iree import IREEBackend
+    # IREE backend (Tier 2)
+    # On Linux, IREE runtime might load CUDA libraries when imported,
+    # which can conflict with PyTorch. Use lazy loading on Linux.
+    if not sys.platform.startswith("linux"):
+        try:
+            from polyinfer.backends.iree import IREEBackend
 
-        register_backend("iree", IREEBackend)
-    except ImportError:
+            register_backend("iree", IREEBackend)
+        except ImportError:
+            pass
+    else:
+        _register_lazy_iree()
+
+
+def _register_lazy_iree():
+    """Register a lazy-loading IREE backend wrapper.
+
+    This is used on Linux to avoid importing iree.runtime at registration time,
+    as it might load CUDA libraries that conflict with PyTorch.
+    """
+    from polyinfer.backends.base import Backend
+
+    class LazyIREEBackend(Backend):
+        """Lazy-loading wrapper for IREE backend."""
+
+        _real_backend = None
+        _import_attempted = False
+        _import_error = None
+
+        @classmethod
+        def _ensure_loaded(cls):
+            """Load the real backend on first use."""
+            if cls._import_attempted:
+                if cls._import_error:
+                    raise cls._import_error
+                return
+
+            cls._import_attempted = True
+            try:
+                from polyinfer.backends.iree.backend import IREEBackend
+                cls._real_backend = IREEBackend()
+            except ImportError as e:
+                cls._import_error = RuntimeError(
+                    f"IREE not available: {e}. "
+                    "Install with: pip install iree-base-runtime iree-base-compiler"
+                )
+                raise cls._import_error
+
+        @property
+        def name(self) -> str:
+            return "iree"
+
+        @property
+        def supported_devices(self) -> list[str]:
+            # Return expected devices without importing iree
+            return ["cpu", "vulkan", "cuda"]
+
+        @property
+        def version(self) -> str:
+            try:
+                self._ensure_loaded()
+                return self._real_backend.version
+            except Exception:
+                return "not loaded"
+
+        @property
+        def priority(self) -> int:
+            return 40
+
+        def is_available(self) -> bool:
+            try:
+                import importlib.metadata as metadata
+                metadata.version("iree-base-runtime")
+                return True
+            except Exception:
+                pass
+            return False
+
+        def load(self, model_path: str, device: str = "cpu", **kwargs):
+            """Load model - this triggers the actual iree import."""
+            self._ensure_loaded()
+            return self._real_backend.load(model_path, device, **kwargs)
+
+    try:
+        register_backend("iree", LazyIREEBackend)
+    except Exception:
         pass
 
 
