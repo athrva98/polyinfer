@@ -233,15 +233,24 @@ def setup_tensorrt_paths() -> bool:
         # with RTLD_GLOBAL to load the libraries and make their symbols available.
         import ctypes
 
-        # Libraries to preload in order (dependencies first)
+        # Libraries to preload in dependency order
+        # ONNX Runtime TensorRT EP requires: libnvinfer, libnvonnxparser, libnvinfer_plugin
+        # We try multiple version suffixes (.so.10, .so.8, .so) for compatibility
         tensorrt_libs_to_load = [
+            # Core TensorRT inference library (must be first)
             "libnvinfer.so.10",
+            "libnvinfer.so.8",
             "libnvinfer.so",
+            # ONNX parser - required for ONNX Runtime to parse models
+            "libnvonnxparser.so.10",
+            "libnvonnxparser.so.8",
+            "libnvonnxparser.so",
+            # TensorRT plugins
             "libnvinfer_plugin.so.10",
+            "libnvinfer_plugin.so.8",
             "libnvinfer_plugin.so",
         ]
 
-        loaded_any = False
         for tensorrt_dir in tensorrt_dirs:
             for lib_name in tensorrt_libs_to_load:
                 lib_path = tensorrt_dir / lib_name
@@ -249,7 +258,6 @@ def setup_tensorrt_paths() -> bool:
                     try:
                         # RTLD_GLOBAL makes symbols available to subsequently loaded libraries
                         ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
-                        loaded_any = True
                     except OSError:
                         # Library might have unmet dependencies, continue
                         pass
@@ -491,6 +499,10 @@ def fix_onnxruntime_conflict(prefer: str = "cuda") -> bool:
 
 # Auto-setup on import
 setup_nvidia_libraries()
+
+# Preload TensorRT libraries BEFORE onnxruntime is imported
+# ONNX Runtime checks for TensorRT EP at import time, so libs must be loaded first
+setup_tensorrt_paths()
 
 # Check for ONNX Runtime conflicts
 _check_onnxruntime_conflicts()
