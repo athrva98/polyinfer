@@ -14,10 +14,25 @@ from pathlib import Path
 
 def _get_site_packages() -> Path:
     """Get the site-packages directory."""
+    # Try to find an actual existing site-packages directory
     for path in sys.path:
         if "site-packages" in path:
-            return Path(path)
-    return Path(sys.prefix) / "Lib" / "site-packages"
+            p = Path(path)
+            if p.exists():
+                return p
+
+    # Fallback: try common locations
+    candidates = [
+        Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages",
+        Path(sys.prefix) / "Lib" / "site-packages",  # Windows
+        Path("/usr/local/lib") / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    # Last resort
+    return Path(sys.prefix) / "lib" / "site-packages"
 
 
 def _find_nvidia_dll_dirs() -> list[Path]:
@@ -146,8 +161,10 @@ def setup_tensorrt_paths():
         _tensorrt_paths_configured = True
         return False
 
-    site_packages = _get_site_packages()
     tensorrt_paths = []
+
+    # 1. Check pip-installed TensorRT packages
+    site_packages = _get_site_packages()
 
     # TensorRT libs from pip package
     tensorrt_libs = site_packages / "tensorrt_libs"
@@ -163,9 +180,31 @@ def setup_tensorrt_paths():
     for pattern in ["tensorrt*libs*", "tensorrt*"]:
         for path in site_packages.glob(pattern):
             if path.is_dir() and str(path) not in tensorrt_paths:
-                # Check if it has .so files
                 if any(path.glob("*.so*")):
                     tensorrt_paths.append(str(path))
+
+    # 2. Check system-level TensorRT installations (e.g., Colab, Docker)
+    system_tensorrt_paths = [
+        "/usr/lib/x86_64-linux-gnu",  # Debian/Ubuntu system libs
+        "/usr/local/lib",
+        "/usr/lib",
+        "/opt/tensorrt/lib",  # Common TensorRT install location
+    ]
+
+    for sys_path in system_tensorrt_paths:
+        p = Path(sys_path)
+        if p.exists():
+            # Check if this directory has TensorRT libraries
+            if any(p.glob("libnvinfer.so*")):
+                if str(p) not in tensorrt_paths:
+                    tensorrt_paths.append(str(p))
+
+    # 3. Check NVIDIA driver library path (Colab uses this)
+    nvidia_lib = Path("/usr/lib64-nvidia")
+    if nvidia_lib.exists() and str(nvidia_lib) not in tensorrt_paths:
+        # Only add if it has TensorRT libs
+        if any(nvidia_lib.glob("libnvinfer.so*")):
+            tensorrt_paths.append(str(nvidia_lib))
 
     if tensorrt_paths:
         current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
