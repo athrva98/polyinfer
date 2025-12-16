@@ -135,6 +135,7 @@ def _setup_ld_library_path():
 
 # Track if TensorRT paths have been set up
 _tensorrt_paths_configured = False
+_preloaded_tensorrt_libs: list[str] = []
 
 
 def _find_tensorrt_lib_dirs() -> list[Path]:
@@ -236,21 +237,41 @@ def setup_tensorrt_paths() -> bool:
         # Libraries to preload in dependency order
         # ONNX Runtime TensorRT EP requires: libnvinfer, libnvonnxparser, libnvinfer_plugin
         # We try multiple version suffixes (.so.10, .so.8, .so) for compatibility
+        #
+        # Order matters! Dependencies must be loaded before dependents:
+        # 1. libnvinfer (core) - depends on CUDA libs (already loaded by PyTorch/onnxruntime)
+        # 2. libnvinfer_plugin - depends on libnvinfer
+        # 3. libnvonnxparser - depends on libnvinfer
+        # 4. libnvinfer_builder_resource - TensorRT builder resources (optional but helps)
         tensorrt_libs_to_load = [
             # Core TensorRT inference library (must be first)
             "libnvinfer.so.10",
             "libnvinfer.so.8",
             "libnvinfer.so",
+            # TensorRT plugins - depends on libnvinfer, needed for custom ops
+            "libnvinfer_plugin.so.10",
+            "libnvinfer_plugin.so.8",
+            "libnvinfer_plugin.so",
             # ONNX parser - required for ONNX Runtime to parse models
             "libnvonnxparser.so.10",
             "libnvonnxparser.so.8",
             "libnvonnxparser.so",
-            # TensorRT plugins
-            "libnvinfer_plugin.so.10",
-            "libnvinfer_plugin.so.8",
-            "libnvinfer_plugin.so",
+            # TensorRT builder resource library (helps with engine building)
+            "libnvinfer_builder_resource.so.10",
+            "libnvinfer_builder_resource.so.8",
+            "libnvinfer_builder_resource.so.10.7.0",
+            "libnvinfer_builder_resource.so",
+            # TensorRT lean runtime (optional, for some configurations)
+            "libnvinfer_lean.so.10",
+            "libnvinfer_lean.so.8",
+            "libnvinfer_lean.so",
+            # TensorRT dispatch (optional, for multi-GPU)
+            "libnvinfer_dispatch.so.10",
+            "libnvinfer_dispatch.so.8",
+            "libnvinfer_dispatch.so",
         ]
 
+        loaded_libs = []
         for tensorrt_dir in tensorrt_dirs:
             for lib_name in tensorrt_libs_to_load:
                 lib_path = tensorrt_dir / lib_name
@@ -258,9 +279,20 @@ def setup_tensorrt_paths() -> bool:
                     try:
                         # RTLD_GLOBAL makes symbols available to subsequently loaded libraries
                         ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
-                    except OSError:
+                        loaded_libs.append(str(lib_path))
+                    except OSError as e:
                         # Library might have unmet dependencies, continue
-                        pass
+                        # Only warn if it's a core library that failed
+                        if "libnvinfer.so" in lib_name or "libnvinfer_plugin.so" in lib_name:
+                            warnings.warn(
+                                f"Failed to preload TensorRT library {lib_path}: {e}",
+                                UserWarning,
+                                stacklevel=3,
+                            )
+
+        # Store loaded libs for debugging
+        global _preloaded_tensorrt_libs
+        _preloaded_tensorrt_libs = loaded_libs
 
         # Also update LD_LIBRARY_PATH for any subprocess calls
         if tensorrt_dirs:
@@ -390,6 +422,11 @@ def get_nvidia_info() -> dict:
         "site_packages": str(site_packages),
         "library_directories": [],
         "libraries": {},
+        "tensorrt_setup": {
+            "configured": _tensorrt_paths_configured,
+            "preloaded_libs": _preloaded_tensorrt_libs,
+            "tensorrt_dirs": [str(d) for d in _find_tensorrt_lib_dirs()],
+        },
     }
 
     if sys.platform == "win32":

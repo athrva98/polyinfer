@@ -308,13 +308,49 @@ class ONNXRuntimeBackend(Backend):
         if "enable_cpu_mem_arena" in kwargs:
             sess_options.enable_cpu_mem_arena = kwargs["enable_cpu_mem_arena"]
 
-        # Create session
-        session = ort.InferenceSession(
-            model_path,
-            sess_options=sess_options,
-            providers=providers,
-            provider_options=provider_options if provider_options else None,
-        )
+        # Create session with fallback handling for TensorRT EP issues
+        # TensorRT EP can fail during session creation even if it shows as available
+        # (e.g., RegisterTensorRTPluginsAsCustomOps error). In this case, fall back
+        # to CUDA EP if available.
+        try:
+            session = ort.InferenceSession(
+                model_path,
+                sess_options=sess_options,
+                providers=providers,
+                provider_options=provider_options if provider_options else None,
+            )
+        except RuntimeError as e:
+            error_msg = str(e)
+            # Check if this is a TensorRT-specific error and we can fall back
+            if "TensorRT" in error_msg or "RegisterTensorRTPluginsAsCustomOps" in error_msg:
+                if "TensorrtExecutionProvider" in providers:
+                    # Try falling back to CUDA EP
+                    fallback_providers = [p for p in providers if p != "TensorrtExecutionProvider"]
+                    fallback_options = [
+                        opt for i, opt in enumerate(provider_options)
+                        if providers[i] != "TensorrtExecutionProvider"
+                    ] if provider_options else None
+
+                    if fallback_providers:
+                        import warnings
+                        warnings.warn(
+                            f"TensorRT EP failed ({error_msg[:100]}...), "
+                            f"falling back to {fallback_providers[0]}",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        session = ort.InferenceSession(
+                            model_path,
+                            sess_options=sess_options,
+                            providers=fallback_providers,
+                            provider_options=fallback_options,
+                        )
+                    else:
+                        raise
+                else:
+                    raise
+            else:
+                raise
 
         # Get the actual provider being used
         active_provider = session.get_providers()[0]
