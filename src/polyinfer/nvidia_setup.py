@@ -339,33 +339,8 @@ def fix_onnxruntime_conflict(prefer: str = "cuda") -> bool:
         return False
 
 
-def _warn_torch_import_order():
-    """Warn if polyinfer is imported after torch on Linux.
-
-    On Linux, importing polyinfer after torch limits CUDA backend functionality
-    because we can't safely import onnxruntime-gpu without risking NCCL conflicts.
-    """
-    if sys.platform.startswith("linux") and "torch" in sys.modules:
-        warnings.warn(
-            "\n\n"
-            "⚠️  polyinfer imported after torch on Linux\n"
-            "   CUDA backends (onnxruntime-gpu, native TensorRT) are disabled\n"
-            "   to avoid conflicts with PyTorch's bundled NCCL library.\n\n"
-            "   For full CUDA support, import polyinfer BEFORE torch:\n"
-            "     import polyinfer as pi  # First\n"
-            "     import torch            # Then torch\n\n"
-            "   Available backends: openvino (CPU), iree (CPU/Vulkan)\n"
-            "   ONNX Runtime CPU is available via: pi.load('model.onnx', device='cpu')\n",
-            UserWarning,
-            stacklevel=3,
-        )
-
-
 # Auto-setup on import
 setup_nvidia_libraries()
-
-# Warn about import order on Linux
-_warn_torch_import_order()
 
 # Check for ONNX Runtime conflicts
 _check_onnxruntime_conflicts()

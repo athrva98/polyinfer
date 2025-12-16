@@ -4,27 +4,42 @@ import sys
 from polyinfer.backends.registry import register_backend
 
 
-def _should_skip_cuda_backend() -> bool:
-    """Check if CUDA-dependent backend imports should be skipped to avoid conflicts.
+def _should_use_lazy_onnxruntime() -> bool:
+    """Check if ONNX Runtime should use lazy loading to avoid CUDA conflicts.
 
-    On Linux, importing onnxruntime-gpu or the native TensorRT backend can load
-    CUDA libraries that conflict with PyTorch's bundled libraries.
-    This causes 'undefined symbol: ncclCommWindowRegister' errors.
+    On Linux, importing onnxruntime-gpu loads CUDA libraries that conflict
+    with PyTorch's bundled libraries (NCCL). This causes errors like:
+    "undefined symbol: ncclCommWindowRegister"
 
-    We skip CUDA backend auto-loading if:
-    1. We're on Linux AND
-    2. PyTorch is already loaded (torch in sys.modules)
+    The conflict happens in BOTH directions:
+    1. Import torch first, then onnxruntime-gpu -> torch breaks
+    2. Import onnxruntime-gpu first, then torch -> torch breaks
 
-    Users can still explicitly use these backends by:
-    - Importing polyinfer before torch (recommended)
-    - Using backend="onnxruntime" or backend="tensorrt" explicitly
-    - Using device="cpu" which doesn't trigger CUDA loading
+    Therefore, on Linux we ALWAYS use lazy loading for ONNX Runtime to defer
+    the actual import until the user explicitly loads a model. This allows:
+    - Users to import polyinfer and torch in any order
+    - ONNX Runtime import only happens when actually needed
+    - If user only uses CPU, no CUDA conflict occurs
+
+    We use lazy loading if:
+    1. We're on Linux (where the CUDA library conflicts occur)
+    2. onnxruntime-gpu is installed (not plain onnxruntime)
+
+    On Windows, the DLL loading mechanism is different and doesn't cause
+    these conflicts, so we can import eagerly.
     """
-    # Only skip on Linux when PyTorch is already loaded
-    if sys.platform.startswith("linux") and "torch" in sys.modules:
-        return True
+    if not sys.platform.startswith("linux"):
+        return False
 
-    return False
+    # Check if onnxruntime-gpu is installed (vs plain onnxruntime)
+    try:
+        import importlib.metadata as metadata
+        metadata.version("onnxruntime-gpu")
+        return True  # onnxruntime-gpu installed, use lazy loading
+    except Exception:
+        pass
+
+    return False  # Plain onnxruntime or not installed, safe to import eagerly
 
 
 def _should_skip_native_tensorrt() -> bool:
@@ -61,17 +76,16 @@ def register_all():
     This function attempts to import and register each backend.
     Backends that fail to import (missing dependencies) are silently skipped.
 
-    IMPORTANT: On Linux when PyTorch is already loaded, we skip importing
-    ONNX Runtime GPU backend to avoid loading CUDA libraries that conflict
-    with PyTorch's bundled NCCL. Users should import polyinfer before torch
-    to get full CUDA backend support.
+    IMPORTANT: On Linux with onnxruntime-gpu, we use lazy loading to avoid
+    importing onnxruntime at module load time. This prevents CUDA library
+    conflicts with PyTorch's bundled NCCL, regardless of import order.
     """
-    skip_cuda = _should_skip_cuda_backend()
+    use_lazy_ort = _should_use_lazy_onnxruntime()
 
     # ONNX Runtime backend (Tier 1)
-    # Skip on Linux if PyTorch is loaded - importing onnxruntime-gpu loads
-    # CUDA libraries that can conflict with PyTorch's bundled NCCL.
-    if not skip_cuda:
+    # On Linux with onnxruntime-gpu, use lazy loading to avoid CUDA conflicts
+    # with PyTorch. The actual import happens when a model is loaded.
+    if not use_lazy_ort:
         try:
             from polyinfer.backends.onnxruntime import ONNXRuntimeBackend
 
@@ -80,7 +94,7 @@ def register_all():
             pass
     else:
         # Register a lazy-loading placeholder that defers the actual import
-        # This allows users to still use onnxruntime explicitly if they want
+        # This allows users to import polyinfer and torch in any order
         _register_lazy_onnxruntime()
 
     # OpenVINO backend (Tier 1) - CPU-focused, no CUDA conflict
@@ -156,9 +170,17 @@ def _register_lazy_onnxruntime():
 
         @property
         def supported_devices(self) -> list[str]:
-            # Return basic info without importing onnxruntime
-            # The actual devices depend on whether onnxruntime-gpu is installed
-            return ["cpu"]  # Safe default, actual devices known after load
+            # Return expected devices based on installed packages
+            # without importing onnxruntime (which would load CUDA libs)
+            devices = ["cpu"]
+            try:
+                import importlib.metadata as metadata
+                # If onnxruntime-gpu is installed, CUDA devices are likely available
+                metadata.version("onnxruntime-gpu")
+                devices.extend(["cuda", "tensorrt"])
+            except Exception:
+                pass
+            return devices
 
         @property
         def version(self) -> str:
