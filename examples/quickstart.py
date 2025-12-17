@@ -133,6 +133,14 @@ def main():
             if "vulkan" in device:
                 continue
 
+            # Skip secondary Intel GPUs (often have driver issues that cause hangs)
+            if device.startswith("intel-gpu:") and device != "intel-gpu:0":
+                continue
+
+            # Skip NPU for now (can cause hangs on unsupported models)
+            if device == "npu":
+                continue
+
             # Normalize device name
             device_type = device.split(":")[0] if ":" in device else device
 
@@ -142,6 +150,8 @@ def main():
 
             try:
                 m = pi.load(model_path, backend=backend_name, device=device)
+                # Run a single inference first to catch device errors early
+                _ = m(input_data)
                 result = m.benchmark(input_data, warmup=10, iterations=50)
                 all_results.append({
                     "backend": backend_name,
@@ -151,7 +161,9 @@ def main():
                 })
                 print(f"   {backend_name:15} ({device:10}): {result['mean_ms']:8.2f} ms ({result['fps']:7.1f} FPS)")
             except Exception as e:
-                print(f"   {backend_name:15} ({device:10}): Error - {str(e)[:50]}")
+                # Truncate long error messages (e.g., OpenVINO errors)
+                err_msg = str(e).split('\n')[0][:60]
+                print(f"   {backend_name:15} ({device:10}): Error - {err_msg}")
 
     print()
 

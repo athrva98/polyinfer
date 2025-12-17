@@ -109,6 +109,13 @@ class TestYOLOv8ONNXRuntime:
     @pytest.mark.tensorrt
     def test_tensorrt(self, yolov8_path, yolo_input, reference_output):
         """Test YOLOv8 on ONNX Runtime TensorRT EP."""
+        # Check if onnxruntime backend supports tensorrt device
+        try:
+            backend = pi.get_backend("onnxruntime")
+            if "tensorrt" not in backend.supported_devices:
+                pytest.skip("ONNX Runtime TensorRT EP not available")
+        except Exception:
+            pytest.skip("ONNX Runtime backend not available")
         model = pi.load(yolov8_path, backend="onnxruntime", device="tensorrt")
         output = model(yolo_input)
 

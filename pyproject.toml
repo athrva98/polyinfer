@@ -141,6 +141,8 @@ examples = [
     "diffusers>=0.25",
     "segment-anything",
     "optimum[onnxruntime]>=1.16",
+    "onnxscript>=0.1",
+    "ultralytics>=8.0",
 ]
 
 # Development dependencies

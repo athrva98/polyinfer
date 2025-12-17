@@ -116,9 +116,13 @@ class TestONNXRuntimeOptions:
         if not pi.is_available("onnxruntime"):
             pytest.skip("ONNX Runtime not installed")
 
-        devices = pi.list_devices()
-        if not any(d.name == "cuda" for d in devices):
-            pytest.skip("CUDA not available")
+        # Check if onnxruntime backend supports cuda device
+        try:
+            backend = pi.get_backend("onnxruntime")
+            if "cuda" not in backend.supported_devices:
+                pytest.skip("ONNX Runtime CUDA EP not available")
+        except Exception:
+            pytest.skip("ONNX Runtime backend not available")
 
         model = pi.load(
             dummy_onnx_model,
@@ -136,9 +140,13 @@ class TestONNXRuntimeOptions:
         if not pi.is_available("onnxruntime"):
             pytest.skip("ONNX Runtime not installed")
 
-        devices = pi.list_devices()
-        if not any(d.name == "cuda" for d in devices):
-            pytest.skip("CUDA not available")
+        # Check if onnxruntime backend supports cuda device
+        try:
+            backend = pi.get_backend("onnxruntime")
+            if "cuda" not in backend.supported_devices:
+                pytest.skip("ONNX Runtime CUDA EP not available")
+        except Exception:
+            pytest.skip("ONNX Runtime backend not available")
 
         model = pi.load(
             dummy_onnx_model,
@@ -155,9 +163,13 @@ class TestONNXRuntimeOptions:
         if not pi.is_available("onnxruntime"):
             pytest.skip("ONNX Runtime not installed")
 
-        devices = pi.list_devices()
-        if not any(d.name == "tensorrt" for d in devices):
-            pytest.skip("TensorRT not available")
+        # Check if onnxruntime backend supports tensorrt device
+        try:
+            backend = pi.get_backend("onnxruntime")
+            if "tensorrt" not in backend.supported_devices:
+                pytest.skip("ONNX Runtime TensorRT EP not available")
+        except Exception:
+            pytest.skip("ONNX Runtime backend not available")
 
         cache_dir = str(tmp_path / "trt_cache")
 

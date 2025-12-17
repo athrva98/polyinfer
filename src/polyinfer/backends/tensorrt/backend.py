@@ -39,14 +39,19 @@ class TensorRTModel(CompiledModel):
         # Get input/output info
         self._input_names = []
         self._output_names = []
-        self._input_shapes = []
-        self._output_shapes = []
+        self._input_shapes = []  # May contain -1 for dynamic dims
+        self._output_shapes = []  # May contain -1 for dynamic dims
         self._bindings = {}
+        self._has_dynamic_shapes = False
 
         for i in range(engine.num_io_tensors):
             name = engine.get_tensor_name(i)
             shape = engine.get_tensor_shape(name)
             mode = engine.get_tensor_mode(name)
+
+            # Check for dynamic dimensions
+            if -1 in shape or any(d < 0 for d in shape):
+                self._has_dynamic_shapes = True
 
             if mode == trt.TensorIOMode.INPUT:
                 self._input_names.append(name)
@@ -61,25 +66,18 @@ class TensorRTModel(CompiledModel):
                 "is_input": mode == trt.TensorIOMode.INPUT,
             }
 
-        # Allocate GPU buffers
+        # Create CUDA stream
+        err, self._stream = cudart.cudaStreamCreate()
+
+        # For static shapes, pre-allocate GPU buffers
+        # For dynamic shapes, allocate lazily on first inference
         self._d_inputs = {}
         self._d_outputs = {}
         self._h_outputs = {}
+        self._allocated_shapes = {}  # Track allocated buffer shapes
 
-        for name, info in self._bindings.items():
-            size = int(np.prod(info["shape"])) * np.dtype(info["dtype"]).itemsize
-            err, ptr = cudart.cudaMalloc(size)
-            if err != cudart.cudaError_t.cudaSuccess:
-                raise RuntimeError(f"Failed to allocate CUDA memory: {err}")
-
-            if info["is_input"]:
-                self._d_inputs[name] = ptr
-            else:
-                self._d_outputs[name] = ptr
-                self._h_outputs[name] = np.empty(info["shape"], dtype=info["dtype"])
-
-        # Create CUDA stream
-        err, self._stream = cudart.cudaStreamCreate()
+        if not self._has_dynamic_shapes:
+            self._allocate_buffers()
 
     @property
     def backend_name(self) -> str:
@@ -105,8 +103,76 @@ class TensorRTModel(CompiledModel):
     def output_shapes(self) -> list[tuple]:
         return self._output_shapes
 
+    def _allocate_buffers(self, input_shapes: dict[str, tuple] = None):
+        """Allocate GPU buffers for inputs and outputs.
+
+        For dynamic shapes, input_shapes must be provided to determine output shapes.
+        """
+        # If we have dynamic shapes, set input shapes on context first
+        if input_shapes:
+            for name, shape in input_shapes.items():
+                self._context.set_input_shape(name, shape)
+
+        # Allocate input buffers
+        for name in self._input_names:
+            if input_shapes:
+                shape = input_shapes[name]
+            else:
+                shape = self._bindings[name]["shape"]
+
+            dtype = self._bindings[name]["dtype"]
+            size = int(np.prod(shape)) * np.dtype(dtype).itemsize
+
+            # Check if we need to reallocate
+            if name in self._allocated_shapes and self._allocated_shapes[name] == shape:
+                continue  # Already allocated with correct shape
+
+            # Free old buffer if exists
+            if name in self._d_inputs:
+                cudart.cudaFree(self._d_inputs[name])
+
+            err, ptr = cudart.cudaMalloc(size)
+            if err != cudart.cudaError_t.cudaSuccess:
+                raise RuntimeError(f"Failed to allocate CUDA memory for {name}: {err}")
+            self._d_inputs[name] = ptr
+            self._allocated_shapes[name] = shape
+
+        # Allocate output buffers based on context's computed shapes
+        for name in self._output_names:
+            if self._has_dynamic_shapes and input_shapes:
+                # Get actual output shape from context after setting input shapes
+                shape = tuple(self._context.get_tensor_shape(name))
+            else:
+                shape = self._bindings[name]["shape"]
+
+            dtype = self._bindings[name]["dtype"]
+            size = int(np.prod(shape)) * np.dtype(dtype).itemsize
+
+            # Check if we need to reallocate
+            if name in self._allocated_shapes and self._allocated_shapes[name] == shape:
+                continue
+
+            # Free old buffer if exists
+            if name in self._d_outputs:
+                cudart.cudaFree(self._d_outputs[name])
+
+            err, ptr = cudart.cudaMalloc(size)
+            if err != cudart.cudaError_t.cudaSuccess:
+                raise RuntimeError(f"Failed to allocate CUDA memory for {name}: {err}")
+            self._d_outputs[name] = ptr
+            self._h_outputs[name] = np.empty(shape, dtype=dtype)
+            self._allocated_shapes[name] = shape
+
     def __call__(self, *inputs: np.ndarray) -> Union[np.ndarray, tuple[np.ndarray, ...]]:
         """Run inference."""
+        # For dynamic shapes, ensure buffers are allocated for current input shapes
+        if self._has_dynamic_shapes:
+            input_shapes = {
+                name: tuple(data.shape)
+                for name, data in zip(self._input_names, inputs)
+            }
+            self._allocate_buffers(input_shapes)
+
         # Copy inputs to GPU
         for name, data in zip(self._input_names, inputs):
             data = np.ascontiguousarray(data)
@@ -301,11 +367,11 @@ class TensorRTBackend(Backend):
         network = builder.create_network(network_flags)
         parser = trt.OnnxParser(network, self.logger)
 
-        # Parse ONNX
-        with open(onnx_path, "rb") as f:
-            if not parser.parse(f.read()):
-                errors = [parser.get_error(i) for i in range(parser.num_errors)]
-                raise RuntimeError(f"ONNX parse failed: {errors}")
+        # Parse ONNX - use parse_from_file to handle external data files (.onnx.data)
+        onnx_path_str = str(onnx_path.resolve())
+        if not parser.parse_from_file(onnx_path_str):
+            errors = [parser.get_error(i) for i in range(parser.num_errors)]
+            raise RuntimeError(f"ONNX parse failed: {errors}")
 
         # Build config
         config = builder.create_builder_config()
@@ -421,10 +487,14 @@ class TensorRTBackend(Backend):
                 # Check if this input has dynamic dimensions
                 if -1 in shape or any(d < 0 for d in shape):
                     # Replace dynamic dims with defaults (1 for batch, keep others)
+                    # Use batch=1 for all profiles by default - this is safest for models
+                    # with internal reshape ops that may have fixed batch dimensions
                     default_shape = tuple(1 if d < 0 else d for d in shape)
                     min_shape = min_shapes.get(name, default_shape)
                     opt_shape = opt_shapes.get(name, default_shape)
-                    max_shape = max_shapes.get(name, tuple(16 if d < 0 else d for d in shape))
+                    # Default max to same as opt (batch=1) to avoid shape conflicts
+                    # Users can override with max_shapes for true dynamic batching
+                    max_shape = max_shapes.get(name, default_shape)
                     profile.set_shape(name, min_shape, opt_shape, max_shape)
 
             config.add_optimization_profile(profile)
