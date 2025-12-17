@@ -196,6 +196,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "intel_gpu: mark test as requiring Intel GPU")
     config.addinivalue_line("markers", "npu: mark test as requiring Intel NPU")
     config.addinivalue_line("markers", "vulkan: mark test as requiring Vulkan")
+    config.addinivalue_line("markers", "iree: mark test as requiring IREE")
     config.addinivalue_line("markers", "slow: mark test as slow")
     config.addinivalue_line("markers", "benchmark: mark test as benchmark")
 
