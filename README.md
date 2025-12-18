@@ -124,6 +124,35 @@ polyinfer benchmark model.onnx --device tensorrt
 polyinfer run model.onnx --device cuda
 ```
 
+## Quantization
+
+Reduce model size and improve inference speed with INT8/FP16 quantization:
+
+```python
+import polyinfer as pi
+
+# Dynamic quantization (no calibration data needed)
+pi.quantize("model.onnx", "model_int8.onnx", method="dynamic")
+
+# Static quantization with calibration data
+calibration_data = [np.random.rand(1, 3, 224, 224).astype(np.float32) for _ in range(100)]
+pi.quantize("model.onnx", "model_int8.onnx",
+            method="static",
+            calibration_data=calibration_data)
+
+# FP16 conversion
+pi.convert_to_fp16("model.onnx", "model_fp16.onnx")
+
+# Load and run quantized model
+model = pi.load("model_int8.onnx", device="cpu")
+output = model(input_data)
+```
+
+**Supported quantization:**
+- **ONNX Runtime**: Dynamic/Static INT8, UINT8, INT4, FP16
+- **OpenVINO (NNCF)**: Static INT8 with calibration
+- **TensorRT**: FP16/INT8 (via `pi.load(..., fp16=True, int8=True)`)
+
 ## Performance
 
 ### YOLOv8n @ 640x640 (RTX 5060)

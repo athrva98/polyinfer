@@ -41,6 +41,18 @@ from polyinfer.discovery import (
 from polyinfer.config import InferenceConfig
 from polyinfer.compare import compare, benchmark
 from polyinfer.mlir import export_mlir, compile_mlir, MLIROutput
+from polyinfer.quantization import (
+    quantize,
+    quantize_dynamic,
+    quantize_static,
+    convert_to_fp16,
+    quantize_for_tensorrt,
+    QuantizationResult,
+    QuantizationConfig,
+    QuantizationMethod,
+    QuantizationType,
+    CalibrationMethod,
+)
 
 __all__ = [
     # Core API
@@ -60,6 +72,17 @@ __all__ = [
     "export_mlir",
     "compile_mlir",
     "MLIROutput",
+    # Quantization
+    "quantize",
+    "quantize_dynamic",
+    "quantize_static",
+    "convert_to_fp16",
+    "quantize_for_tensorrt",
+    "QuantizationResult",
+    "QuantizationConfig",
+    "QuantizationMethod",
+    "QuantizationType",
+    "CalibrationMethod",
     # Setup helpers
     "fix_onnxruntime_conflict",
     "get_nvidia_info",
