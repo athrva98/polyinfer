@@ -10,6 +10,10 @@ import os
 import sys
 import warnings
 from pathlib import Path
+import logging
+
+# Create logger directly since _logging may not be imported yet
+_logger = logging.getLogger("polyinfer.nvidia_setup")
 
 
 def _get_site_packages() -> Path:
@@ -91,10 +95,12 @@ def _setup_dll_directories():
         return
 
     dll_dirs = _find_nvidia_dll_dirs()
+    _logger.debug(f"Found {len(dll_dirs)} NVIDIA DLL directories")
 
     for dll_dir in dll_dirs:
         try:
             os.add_dll_directory(str(dll_dir))
+            _logger.debug(f"Added DLL directory: {dll_dir}")
         except (OSError, AttributeError):
             # os.add_dll_directory may not exist on older Python
             pass
@@ -105,6 +111,7 @@ def _setup_dll_directories():
         current_path = os.environ.get("PATH", "")
         if path_additions not in current_path:
             os.environ["PATH"] = path_additions + os.pathsep + current_path
+            _logger.debug("Updated PATH with NVIDIA directories")
 
 
 def _find_nvidia_lib_dirs() -> list[Path]:
@@ -214,11 +221,14 @@ def setup_tensorrt_paths() -> bool:
     global _tensorrt_paths_configured
 
     if _tensorrt_paths_configured:
+        _logger.debug("TensorRT paths already configured")
         return False
 
     tensorrt_dirs = _find_tensorrt_lib_dirs()
+    _logger.debug(f"Found {len(tensorrt_dirs)} TensorRT directories")
 
     if not tensorrt_dirs:
+        _logger.debug("No TensorRT directories found")
         _tensorrt_paths_configured = True
         return False
 
@@ -227,6 +237,7 @@ def setup_tensorrt_paths() -> bool:
         for tensorrt_dir in tensorrt_dirs:
             try:
                 os.add_dll_directory(str(tensorrt_dir))
+                _logger.debug(f"Added TensorRT DLL directory: {tensorrt_dir}")
             except (OSError, AttributeError):
                 pass
             # Also add to PATH
@@ -287,10 +298,12 @@ def setup_tensorrt_paths() -> bool:
                         # RTLD_GLOBAL makes symbols available to subsequently loaded libraries
                         ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
                         loaded_libs.append(str(lib_path))
+                        _logger.debug(f"Preloaded TensorRT library: {lib_path}")
                     except OSError as e:
                         # Library might have unmet dependencies, continue
                         # Only warn if it's a core library that failed
                         if "libnvinfer.so" in lib_name or "libnvinfer_plugin.so" in lib_name:
+                            _logger.warning(f"Failed to preload TensorRT library {lib_path}: {e}")
                             warnings.warn(
                                 f"Failed to preload TensorRT library {lib_path}: {e}",
                                 UserWarning,
@@ -300,6 +313,7 @@ def setup_tensorrt_paths() -> bool:
         # Store loaded libs for debugging
         global _preloaded_tensorrt_libs
         _preloaded_tensorrt_libs = loaded_libs
+        _logger.debug(f"Preloaded {len(loaded_libs)} TensorRT libraries")
 
         # Also update LD_LIBRARY_PATH for any subprocess calls
         if tensorrt_dirs:
@@ -312,6 +326,7 @@ def setup_tensorrt_paths() -> bool:
                     os.environ["LD_LIBRARY_PATH"] = ":".join(new_paths)
 
     _tensorrt_paths_configured = True
+    _logger.debug("TensorRT paths configured successfully")
     return True
 
 

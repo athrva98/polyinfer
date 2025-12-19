@@ -53,6 +53,16 @@ from polyinfer.quantization import (
     QuantizationType,
     CalibrationMethod,
 )
+from polyinfer._logging import (
+    get_logger,
+    set_log_level,
+    get_log_level,
+    get_log_level_name,
+    enable_logging,
+    disable_logging,
+    configure_logging,
+    LogContext,
+)
 
 __all__ = [
     # Core API
@@ -87,6 +97,15 @@ __all__ = [
     "fix_onnxruntime_conflict",
     "get_nvidia_info",
     "setup_tensorrt_paths",
+    # Logging
+    "get_logger",
+    "set_log_level",
+    "get_log_level",
+    "get_log_level_name",
+    "enable_logging",
+    "disable_logging",
+    "configure_logging",
+    "LogContext",
     # Version
     "__version__",
 ]
