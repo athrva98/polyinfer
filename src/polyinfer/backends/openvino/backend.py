@@ -4,6 +4,9 @@ from typing import Union
 import numpy as np
 
 from polyinfer.backends.base import Backend, CompiledModel
+from polyinfer._logging import get_logger
+
+_logger = get_logger("backends.openvino")
 
 # Check if OpenVINO is available
 try:
@@ -11,10 +14,12 @@ try:
     from openvino import Core, CompiledModel as OVCompiledModel, Tensor as OVTensor
 
     OPENVINO_AVAILABLE = True
+    _logger.debug(f"OpenVINO {ov.__version__} available")
 except ImportError:
     OPENVINO_AVAILABLE = False
     ov = None
     Core = None
+    _logger.debug("OpenVINO not installed")
 
 
 # Performance hint mapping
@@ -197,7 +202,10 @@ class OpenVINOBackend(Backend):
             Compiled model ready for inference
         """
         if not OPENVINO_AVAILABLE:
+            _logger.error("OpenVINO not installed")
             raise RuntimeError("openvino not installed. Run: pip install openvino")
+
+        _logger.debug(f"Loading model: {model_path}")
 
         # Map our device names to OpenVINO device names
         device_map = {
@@ -215,7 +223,10 @@ class OpenVINOBackend(Backend):
         if device_id:
             ov_device = f"{ov_device}.{device_id}"
 
+        _logger.debug(f"Target OpenVINO device: {ov_device}")
+
         # Read the model
+        _logger.debug("Reading model...")
         model = self.core.read_model(model_path)
 
         # Configure properties
@@ -238,7 +249,10 @@ class OpenVINOBackend(Backend):
             config["CACHE_DIR"] = cache_dir
 
         # Compile the model
+        _logger.debug(f"Compiling model with config: {config}")
         compiled = self.core.compile_model(model, ov_device, config)
+
+        _logger.info(f"Model compiled on {ov_device}")
 
         return OpenVINOModel(
             compiled_model=compiled,

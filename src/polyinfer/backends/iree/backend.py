@@ -10,6 +10,9 @@ import shutil
 from dataclasses import dataclass
 
 from polyinfer.backends.base import Backend, CompiledModel
+from polyinfer._logging import get_logger
+
+_logger = get_logger("backends.iree")
 
 
 @dataclass
@@ -56,17 +59,21 @@ try:
     import iree.runtime as iree_rt
 
     IREE_RUNTIME_AVAILABLE = True
+    _logger.debug(f"IREE Runtime available")
 except ImportError:
     IREE_RUNTIME_AVAILABLE = False
     iree_rt = None
+    _logger.debug("IREE Runtime not installed")
 
 try:
     import iree.compiler as iree_compiler
 
     IREE_COMPILER_AVAILABLE = True
+    _logger.debug("IREE Compiler available")
 except ImportError:
     IREE_COMPILER_AVAILABLE = False
     iree_compiler = None
+    _logger.debug("IREE Compiler not installed")
 
 
 def _find_iree_tool(tool_name: str) -> str | None:
@@ -278,7 +285,10 @@ class IREEBackend(Backend):
             Compiled IREE model
         """
         if not IREE_RUNTIME_AVAILABLE:
+            _logger.error("IREE Runtime not installed")
             raise RuntimeError("iree-runtime not installed. Run: pip install iree-base-runtime")
+
+        _logger.debug(f"Loading model: {model_path}")
 
         model_path = Path(model_path)
         device_type = device.split(":")[0] if ":" in device else device
@@ -288,17 +298,23 @@ class IREEBackend(Backend):
         cache_dir = Path(kwargs.get("cache_dir", "."))
         vmfb_path = cache_dir / f"{model_path.stem}_{target}.vmfb"
 
+        _logger.debug(f"Target: {target}, cache path: {vmfb_path}")
+
         # Check for cached compilation
         if vmfb_path.exists() and not kwargs.get("force_compile", False):
+            _logger.info(f"Loading cached VMFB: {vmfb_path}")
             return self._load_vmfb(vmfb_path, device)
 
         # Compile from ONNX
+        _logger.info("Compiling ONNX to IREE VMFB...")
         if not IREE_COMPILER_AVAILABLE:
             # Try using CLI tools
+            _logger.debug("Using CLI tools for compilation")
             vmfb_path = self._compile_with_cli(model_path, target, vmfb_path, **kwargs)
         else:
             vmfb_path = self._compile_with_api(model_path, target, vmfb_path, **kwargs)
 
+        _logger.info(f"Compilation complete: {vmfb_path}")
         return self._load_vmfb(vmfb_path, device)
 
     def emit_mlir(
@@ -352,12 +368,14 @@ class IREEBackend(Backend):
         # Find IREE import tool
         iree_import = _get_iree_import_onnx()
         if not iree_import:
+            _logger.error("iree-import-onnx not found")
             raise RuntimeError(
                 "iree-import-onnx not found. Install with: pip install iree-base-compiler\n"
                 "Or ensure the tool is in your PATH."
             )
 
         # Convert ONNX to MLIR
+        _logger.debug(f"Converting ONNX to MLIR: {model_path} -> {output_path}")
         try:
             result = subprocess.run(
                 [iree_import, str(model_path), "-o", str(output_path)],
@@ -365,8 +383,10 @@ class IREEBackend(Backend):
                 capture_output=True,
                 text=True,
             )
+            _logger.debug("MLIR conversion successful")
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
+            _logger.error(f"ONNX to MLIR conversion failed: {error_msg}")
             raise RuntimeError(f"ONNX to MLIR conversion failed: {error_msg}")
 
         # Load content if requested

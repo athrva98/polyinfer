@@ -4,15 +4,20 @@ from typing import Union
 import numpy as np
 
 from polyinfer.backends.base import Backend, CompiledModel
+from polyinfer._logging import get_logger
+
+_logger = get_logger("backends.onnxruntime")
 
 # Check if onnxruntime is available
 try:
     import onnxruntime as ort
 
     ONNXRUNTIME_AVAILABLE = True
+    _logger.debug(f"ONNX Runtime {ort.__version__} available")
 except ImportError:
     ONNXRUNTIME_AVAILABLE = False
     ort = None
+    _logger.debug("ONNX Runtime not installed")
 
 
 # Map device types to execution providers
@@ -257,7 +262,10 @@ class ONNXRuntimeBackend(Backend):
             ... )
         """
         if not ONNXRUNTIME_AVAILABLE:
+            _logger.error("ONNX Runtime not installed")
             raise RuntimeError("onnxruntime not installed. Run: pip install onnxruntime")
+
+        _logger.debug(f"Loading model: {model_path}")
 
         # Normalize device
         device_type = device.split(":")[0] if ":" in device else device
@@ -266,6 +274,7 @@ class ONNXRuntimeBackend(Backend):
         # Setup TensorRT library paths if TensorRT is requested
         # This must happen BEFORE creating the session
         if device_type == "tensorrt":
+            _logger.debug("Setting up TensorRT paths for TensorRT EP")
             from polyinfer.nvidia_setup import setup_tensorrt_paths
             setup_tensorrt_paths()
 
@@ -277,8 +286,11 @@ class ONNXRuntimeBackend(Backend):
         # Filter to available providers
         available = set(ort.get_available_providers())
         providers = [p for p in providers if p in available]
+        _logger.debug(f"Available providers: {list(available)}")
+        _logger.debug(f"Selected providers: {providers}")
 
         if not providers:
+            _logger.error(f"No execution provider available for device '{device}'")
             raise RuntimeError(
                 f"No execution provider available for device '{device}'. "
                 f"Available: {list(available)}"
@@ -371,6 +383,7 @@ class ONNXRuntimeBackend(Backend):
         # TensorRT EP can fail during session creation even if it shows as available
         # (e.g., RegisterTensorRTPluginsAsCustomOps error). In this case, fall back
         # to CUDA EP if available.
+        _logger.debug("Creating inference session...")
         try:
             session = ort.InferenceSession(
                 model_path,
@@ -391,6 +404,7 @@ class ONNXRuntimeBackend(Backend):
                     ] if provider_options else None
 
                     if fallback_providers:
+                        _logger.warning(f"TensorRT EP failed, falling back to {fallback_providers[0]}")
                         import warnings
                         warnings.warn(
                             f"TensorRT EP failed ({error_msg[:100]}...), "
@@ -405,14 +419,18 @@ class ONNXRuntimeBackend(Backend):
                             provider_options=fallback_options,
                         )
                     else:
+                        _logger.error(f"TensorRT EP failed with no fallback: {error_msg}")
                         raise
                 else:
+                    _logger.error(f"Session creation failed: {error_msg}")
                     raise
             else:
+                _logger.error(f"Session creation failed: {error_msg}")
                 raise
 
         # Get the actual provider being used
         active_provider = session.get_providers()[0]
+        _logger.info(f"Model loaded with {active_provider}")
 
         return ONNXRuntimeModel(
             session=session,

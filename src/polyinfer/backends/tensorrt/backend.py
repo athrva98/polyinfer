@@ -5,6 +5,9 @@ from typing import Union
 import numpy as np
 
 from polyinfer.backends.base import Backend, CompiledModel
+from polyinfer._logging import get_logger
+
+_logger = get_logger("backends.tensorrt")
 
 # Check if TensorRT is available
 try:
@@ -17,10 +20,12 @@ try:
         import cuda.cudart as cudart
 
     TENSORRT_AVAILABLE = True
+    _logger.debug(f"TensorRT {trt.__version__} available")
 except ImportError:
     TENSORRT_AVAILABLE = False
     trt = None
     cudart = None
+    _logger.debug("TensorRT not installed")
 
 
 class TensorRTModel(CompiledModel):
@@ -322,13 +327,17 @@ class TensorRTBackend(Backend):
             ... )
         """
         if not TENSORRT_AVAILABLE:
+            _logger.error("TensorRT not installed")
             raise RuntimeError(
                 "TensorRT not installed. Install CUDA, TensorRT, and run: pip install tensorrt"
             )
 
+        _logger.debug(f"Loading model: {model_path}")
+
         # Parse device
         device_id = int(device.split(":")[1]) if ":" in device else 0
         cudart.cudaSetDevice(device_id)
+        _logger.debug(f"Using CUDA device: {device_id}")
 
         # Check for cached engine
         model_path = Path(model_path)
@@ -340,16 +349,20 @@ class TensorRTBackend(Backend):
 
         # Try to load cached engine (unless force_rebuild)
         if cache_path.exists() and not kwargs.get("force_rebuild", False):
+            _logger.info(f"Loading cached engine: {cache_path}")
             return self._load_engine(cache_path, device_id)
 
         # Build engine from ONNX with full options
+        _logger.info("Building TensorRT engine from ONNX (this may take a while)...")
         engine = self._build_engine(model_path, **kwargs)
 
         # Cache the engine
+        _logger.debug(f"Saving engine to: {cache_path}")
         self._save_engine(engine, cache_path)
 
         # Create execution context
         context = engine.create_execution_context()
+        _logger.info("TensorRT engine built and ready")
 
         return TensorRTModel(engine, context, device_id)
 
@@ -368,9 +381,11 @@ class TensorRTBackend(Backend):
         parser = trt.OnnxParser(network, self.logger)
 
         # Parse ONNX - use parse_from_file to handle external data files (.onnx.data)
+        _logger.debug(f"Parsing ONNX file: {onnx_path}")
         onnx_path_str = str(onnx_path.resolve())
         if not parser.parse_from_file(onnx_path_str):
             errors = [parser.get_error(i) for i in range(parser.num_errors)]
+            _logger.error(f"ONNX parse failed: {errors}")
             raise RuntimeError(f"ONNX parse failed: {errors}")
 
         # Build config
@@ -383,8 +398,10 @@ class TensorRTBackend(Backend):
         # === Precision flags ===
         if kwargs.get("fp16", False):
             config.set_flag(trt.BuilderFlag.FP16)
+            _logger.debug("FP16 precision enabled")
         if kwargs.get("int8", False):
             config.set_flag(trt.BuilderFlag.INT8)
+            _logger.debug("INT8 precision enabled")
         if kwargs.get("bf16", False):
             if hasattr(trt.BuilderFlag, "BF16"):
                 config.set_flag(trt.BuilderFlag.BF16)
@@ -500,8 +517,10 @@ class TensorRTBackend(Backend):
             config.add_optimization_profile(profile)
 
         # Build engine
+        _logger.debug("Building serialized network...")
         engine_bytes = builder.build_serialized_network(network, config)
         if engine_bytes is None:
+            _logger.error("Failed to build TensorRT engine")
             raise RuntimeError("Failed to build TensorRT engine")
 
         # Save timing cache if used

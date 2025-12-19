@@ -3,6 +3,9 @@
 from dataclasses import dataclass
 from typing import Type
 from polyinfer.backends.base import Backend
+from polyinfer._logging import get_logger
+
+_logger = get_logger("backends.registry")
 
 
 @dataclass
@@ -39,6 +42,7 @@ def register_backend(name: str, backend_class: Type[Backend]) -> None:
         backend_class: Backend class to register
     """
     _backends[name] = BackendInfo(name=name, backend_class=backend_class)
+    _logger.debug(f"Registered backend: {name}")
 
 
 def get_backend(name: str) -> Backend:
@@ -56,15 +60,18 @@ def get_backend(name: str) -> Backend:
     """
     if name not in _backends:
         available = list(_backends.keys())
+        _logger.error(f"Backend '{name}' not found. Available: {available}")
         raise KeyError(f"Backend '{name}' not found. Available: {available}")
 
     info = _backends[name]
     if not info.is_available():
+        _logger.error(f"Backend '{name}' is not available")
         raise RuntimeError(
             f"Backend '{name}' is not available. "
             f"Install it with: pip install polyinfer[{name}]"
         )
 
+    _logger.debug(f"Retrieved backend: {name}")
     return info.get_instance()
 
 

@@ -7,6 +7,9 @@ import numpy as np
 from polyinfer.backends.base import CompiledModel
 from polyinfer.discovery import select_backend, get_backend
 from polyinfer.config import InferenceConfig
+from polyinfer._logging import get_logger
+
+_logger = get_logger("model")
 
 
 class Model:
@@ -40,7 +43,10 @@ class Model:
         """
         self.model_path = Path(model_path)
         if not self.model_path.exists():
+            _logger.error(f"Model not found: {model_path}")
             raise FileNotFoundError(f"Model not found: {model_path}")
+
+        _logger.debug(f"Loading model: {model_path}")
 
         # Merge config with kwargs
         if config:
@@ -55,21 +61,29 @@ class Model:
 
         # Select backend
         if backend:
+            _logger.debug(f"Using specified backend: {backend}")
             self._backend = get_backend(backend)
             if not self._backend.supports_device(device):
+                _logger.error(f"Backend '{backend}' does not support device '{device}'")
                 raise ValueError(
                     f"Backend '{backend}' does not support device '{device}'. "
                     f"Supported: {self._backend.supported_devices}"
                 )
         else:
+            _logger.debug(f"Auto-selecting backend for device: {device}")
             self._backend = select_backend(device)
 
+        _logger.debug(f"Selected backend: {self._backend.name} (priority: {self._backend.priority})")
+
         # Load the model
+        _logger.debug(f"Loading with device: {device}")
         self._model: CompiledModel = self._backend.load(
             str(self.model_path),
             device=device,
             **kwargs,
         )
+
+        _logger.info(f"Model loaded: {self.model_path.name} on {self._model.backend_name}")
 
     @staticmethod
     def _normalize_device(device: str) -> str:

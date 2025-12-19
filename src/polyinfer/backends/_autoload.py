@@ -1,7 +1,11 @@
 """Auto-load and register available backends."""
 
 import sys
+import logging
 from polyinfer.backends.registry import register_backend
+
+# Use logging module directly to avoid circular imports
+_logger = logging.getLogger("polyinfer.backends.autoload")
 
 
 def _verify_tensorrt_libs_available() -> bool:
@@ -111,6 +115,7 @@ def register_all():
     importing onnxruntime at module load time. This prevents CUDA library
     conflicts with PyTorch's bundled NCCL, regardless of import order.
     """
+    _logger.debug("Registering available backends...")
     use_lazy_ort = _should_use_lazy_onnxruntime()
 
     # ONNX Runtime backend (Tier 1)
@@ -121,11 +126,13 @@ def register_all():
             from polyinfer.backends.onnxruntime import ONNXRuntimeBackend
 
             register_backend("onnxruntime", ONNXRuntimeBackend)
-        except ImportError:
-            pass
+            _logger.debug("Registered ONNX Runtime backend (eager)")
+        except ImportError as e:
+            _logger.debug(f"ONNX Runtime not available: {e}")
     else:
         # Register a lazy-loading placeholder that defers the actual import
         # This allows users to import polyinfer and torch in any order
+        _logger.debug("Using lazy ONNX Runtime backend (Linux + onnxruntime-gpu)")
         _register_lazy_onnxruntime()
 
     # OpenVINO backend (Tier 1) - CPU-focused, no CUDA conflict
@@ -133,8 +140,9 @@ def register_all():
         from polyinfer.backends.openvino import OpenVINOBackend
 
         register_backend("openvino", OpenVINOBackend)
-    except ImportError:
-        pass
+        _logger.debug("Registered OpenVINO backend")
+    except ImportError as e:
+        _logger.debug(f"OpenVINO not available: {e}")
 
     # TensorRT backend (Tier 2)
     # Skip on Linux or if PyTorch is loaded to avoid CUDA library conflicts.
@@ -144,8 +152,11 @@ def register_all():
             from polyinfer.backends.tensorrt import TensorRTBackend
 
             register_backend("tensorrt", TensorRTBackend)
-        except ImportError:
-            pass
+            _logger.debug("Registered native TensorRT backend")
+        except ImportError as e:
+            _logger.debug(f"Native TensorRT not available: {e}")
+    else:
+        _logger.debug("Skipping native TensorRT (PyTorch loaded or Linux)")
 
     # IREE backend (Tier 2)
     # On Linux, IREE runtime might load CUDA libraries when imported,
@@ -155,10 +166,14 @@ def register_all():
             from polyinfer.backends.iree import IREEBackend
 
             register_backend("iree", IREEBackend)
-        except ImportError:
-            pass
+            _logger.debug("Registered IREE backend (eager)")
+        except ImportError as e:
+            _logger.debug(f"IREE not available: {e}")
     else:
+        _logger.debug("Using lazy IREE backend (Linux)")
         _register_lazy_iree()
+
+    _logger.debug("Backend registration complete")
 
 
 def _register_lazy_iree():
