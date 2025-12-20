@@ -354,7 +354,9 @@ class IREEBackend(Backend):
             raise FileNotFoundError(f"Model not found: {model_path_obj}")
 
         # Determine output path
-        output_path_obj = model_path_obj.with_suffix(".mlir") if output_path is None else Path(output_path)
+        output_path_obj = (
+            model_path_obj.with_suffix(".mlir") if output_path is None else Path(output_path)
+        )
 
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 

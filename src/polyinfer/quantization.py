@@ -499,7 +499,11 @@ def _create_nncf_dataset(model, data: CalibrationData, num_samples: int):
     if callable(data) and not isinstance(data, (list, Iterator)):
         normalized_data = data()
 
-    if isinstance(normalized_data, list) and len(normalized_data) > 0 and isinstance(normalized_data[0], np.ndarray):
+    if (
+        isinstance(normalized_data, list)
+        and len(normalized_data) > 0
+        and isinstance(normalized_data[0], np.ndarray)
+    ):
         # List of arrays
         if len(input_names) != 1:
             raise ValueError(

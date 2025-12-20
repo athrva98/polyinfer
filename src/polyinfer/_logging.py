@@ -237,7 +237,9 @@ def _log_backend_init(name: str, version: str, devices: list):
     logger.debug(f"  Supported devices: {devices}")
 
 
-def _log_inference(backend: str, input_shapes: list, output_shapes: list, time_ms: float | None = None):
+def _log_inference(
+    backend: str, input_shapes: list, output_shapes: list, time_ms: float | None = None
+):
     """Log inference operation."""
     logger = get_logger("inference")
     if time_ms is not None:

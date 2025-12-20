@@ -339,7 +339,9 @@ class TensorRTBackend(Backend):
         # Check for cached engine
         model_path_obj = Path(model_path)
         cache_path = kwargs.get("cache_path")
-        cache_path = model_path_obj.with_suffix(".engine") if cache_path is None else Path(cache_path)
+        cache_path = (
+            model_path_obj.with_suffix(".engine") if cache_path is None else Path(cache_path)
+        )
 
         # Try to load cached engine (unless force_rebuild)
         if cache_path.exists() and not kwargs.get("force_rebuild", False):
