@@ -211,7 +211,8 @@ class TensorRTModel(CompiledModel):
         cudart.cudaStreamSynchronize(self._stream)
 
         if len(outputs) == 1:
-            return outputs[0]
+            result: np.ndarray = outputs[0]
+            return result
         return tuple(outputs)
 
     def __del__(self):
