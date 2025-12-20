@@ -7,6 +7,17 @@ import pytest
 
 import polyinfer as pi
 
+# Check if onnxruntime quantization is available
+try:
+    from onnxruntime.quantization import quantize_dynamic as _  # noqa: F401
+
+    ONNXRUNTIME_QUANT_AVAILABLE = True
+except ImportError:
+    ONNXRUNTIME_QUANT_AVAILABLE = False
+
+# Check if any backend can load models
+_HAS_ANY_BACKEND = len(pi.list_backends()) > 0
+
 
 class TestQuantizationAPI:
     """Test quantization API availability and basic functionality."""
@@ -46,6 +57,9 @@ class TestQuantizationAPI:
         assert pi.CalibrationMethod.PERCENTILE.value == "percentile"
 
 
+@pytest.mark.skipif(
+    not ONNXRUNTIME_QUANT_AVAILABLE, reason="onnxruntime quantization not installed"
+)
 class TestDynamicQuantization:
     """Test dynamic quantization (no calibration needed)."""
 
@@ -116,6 +130,7 @@ class TestDynamicQuantization:
         assert output_path.exists()
         assert result.method == "dynamic"
 
+    @pytest.mark.skipif(not _HAS_ANY_BACKEND, reason="No backends installed")
     def test_quantized_model_loads(self, simple_model, tmp_path):
         """Test that quantized model can be loaded and run."""
         output_path = tmp_path / "model_int8.onnx"
@@ -131,6 +146,9 @@ class TestDynamicQuantization:
         assert output.shape == (1, 3, 32, 32)
 
 
+@pytest.mark.skipif(
+    not ONNXRUNTIME_QUANT_AVAILABLE, reason="onnxruntime quantization not installed"
+)
 class TestStaticQuantization:
     """Test static quantization (requires calibration)."""
 
@@ -304,6 +322,9 @@ class TestFP16Conversion:
         assert output is not None
 
 
+@pytest.mark.skipif(
+    not ONNXRUNTIME_QUANT_AVAILABLE, reason="onnxruntime quantization not installed"
+)
 class TestQuantizationResult:
     """Test QuantizationResult dataclass."""
 

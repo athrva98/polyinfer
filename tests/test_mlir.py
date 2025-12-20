@@ -8,6 +8,12 @@ import pytest
 
 import polyinfer as pi
 
+# Check if IREE is available
+IREE_AVAILABLE = pi.is_available("iree")
+
+# Skip all tests in this module if IREE is not available
+pytestmark = pytest.mark.skipif(not IREE_AVAILABLE, reason="IREE backend not available")
+
 # =============================================================================
 # Fixtures
 # =============================================================================
