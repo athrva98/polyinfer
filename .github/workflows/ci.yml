@@ -1,0 +1,231 @@
+# GitHub Actions CI/CD Pipeline for PolyInfer
+# Cross-platform testing on Windows, Linux, and macOS
+# Uses FREE GitHub Actions plan (GitHub-hosted runners, CPU-only)
+
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:  # Allow manual trigger
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: 1
+  PYTHONUNBUFFERED: 1
+
+jobs:
+  # ============================================
+  # Code Quality Checks (Fast, runs first)
+  # ============================================
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+
+      - name: Run ruff linter
+        run: ruff check src/ tests/
+
+      - name: Run ruff formatter check
+        run: ruff format --check src/ tests/
+
+      - name: Install package for type checking
+        run: pip install -e .
+
+      - name: Run mypy type checker
+        run: mypy src/polyinfer/
+
+  # ============================================
+  # Cross-Platform Tests (CPU-only)
+  # ============================================
+  test:
+    name: Test - Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    needs: lint  # Only run tests if linting passes
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+        include:
+          # Only test one Python version on macOS to save minutes (10x cost)
+          - os: macos-latest
+            python-version: "3.11"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install package with dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: List available backends
+        run: python -c "import polyinfer as pi; print('Available backends:', pi.list_backends()); print('Available devices:', pi.list_devices())"
+
+      - name: Run CPU-only tests
+        run: |
+          pytest tests/ -v --tb=short -m "not (cuda or tensorrt or directml or intel_gpu or npu or vulkan or benchmark or slow)"
+
+  # ============================================
+  # Backend-Specific Tests (Optional CPU backends)
+  # ============================================
+  test-backends:
+    name: Test - ${{ matrix.backend }} Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: openvino
+            install: ".[openvino,dev]"
+            marker: "openvino"
+          - backend: iree
+            install: ".[iree,dev]"
+            marker: "iree"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install package with ${{ matrix.backend }} backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "${{ matrix.install }}"
+
+      - name: List available backends
+        run: python -c "import polyinfer as pi; print('Available backends:', pi.list_backends()); print('Available devices:', pi.list_devices())"
+
+      - name: Run ${{ matrix.backend }} tests
+        run: |
+          pytest tests/ -v --tb=short -m "not (cuda or tensorrt or directml or intel_gpu or npu or vulkan or benchmark or slow)"
+        continue-on-error: true  # Backend tests are optional on CPU runners
+
+  # ============================================
+  # Build & Package Verification
+  # ============================================
+  build:
+    name: Build Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build package
+        run: python -m build
+
+      - name: Check package with twine
+        run: twine check dist/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # ============================================
+  # Windows DirectML Test (Windows-specific)
+  # ============================================
+  test-directml:
+    name: Test - DirectML (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install package with DirectML backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[amd,dev]"
+
+      - name: List available backends
+        run: python -c "import polyinfer as pi; print('Available backends:', pi.list_backends()); print('Available devices:', pi.list_devices())"
+
+      - name: Run DirectML-compatible tests
+        run: |
+          pytest tests/ -v --tb=short -m "not (cuda or tensorrt or intel_gpu or npu or vulkan or benchmark or slow)"
+        continue-on-error: true  # DirectML may not work on GitHub runners without GPU
+
+  # ============================================
+  # Summary Job (Required status check)
+  # ============================================
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [lint, test, build]
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ]]; then
+            echo "Lint job failed"
+            exit 1
+          fi
+          if [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "Test job failed"
+            exit 1
+          fi
+          if [[ "${{ needs.build.result }}" != "success" ]]; then
+            echo "Build job failed"
+            exit 1
+          fi
+          echo "All required jobs passed!"
