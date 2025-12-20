@@ -87,7 +87,8 @@ class ONNXRuntimeModel(CompiledModel):
         outputs = self._session.run(None, input_dict)
 
         if len(outputs) == 1:
-            return outputs[0]
+            result: np.ndarray = outputs[0]
+            return result
         return tuple(outputs)
 
     def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
@@ -188,7 +189,7 @@ class ONNXRuntimeBackend(Backend):
     @property
     def version(self) -> str:
         if ONNXRUNTIME_AVAILABLE:
-            return ort.__version__
+            return str(ort.__version__)
         return "not installed"
 
     @property
@@ -203,7 +204,7 @@ class ONNXRuntimeBackend(Backend):
         """Get list of available execution providers."""
         if not ONNXRUNTIME_AVAILABLE:
             return []
-        return ort.get_available_providers()
+        return list(ort.get_available_providers())
 
     def load(
         self,

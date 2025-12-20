@@ -439,7 +439,7 @@ def get_nvidia_info() -> dict:
         Dictionary with information about found NVIDIA packages and libraries.
     """
     site_packages = _get_site_packages()
-    info = {
+    info: dict = {
         "site_packages": str(site_packages),
         "library_directories": [],
         "libraries": {},
@@ -502,17 +502,17 @@ def fix_onnxruntime_conflict(prefer: str = "cuda") -> bool:
     import subprocess
 
     try:
-        import importlib.metadata as metadata
+        import importlib.metadata as pkg_metadata
     except ImportError:
-        import importlib_metadata as metadata
+        import importlib_metadata as pkg_metadata  # type: ignore
 
     # Check which variants are installed
-    installed = []
+    installed: list[str] = []
     for pkg in ["onnxruntime", "onnxruntime-gpu", "onnxruntime-directml"]:
         try:
-            metadata.version(pkg)
+            pkg_metadata.version(pkg)
             installed.append(pkg)
-        except metadata.PackageNotFoundError:
+        except pkg_metadata.PackageNotFoundError:
             pass
 
     if len(installed) <= 1:

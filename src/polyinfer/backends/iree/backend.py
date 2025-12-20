@@ -197,6 +197,8 @@ class IREEModel(CompiledModel):
         inputs = tuple(np.ascontiguousarray(inp, dtype=np.float32) for inp in inputs)
 
         # Run inference
+        if self._func is None:
+            raise RuntimeError("Model function not initialized")
         outputs = self._func(*inputs)
 
         # Convert outputs to numpy
@@ -255,7 +257,7 @@ class IREEBackend(Backend):
             return False
 
         # Need compiler tools or CLI tools as fallback
-        return IREE_COMPILER_AVAILABLE or (_get_iree_import_onnx() and _get_iree_compile())
+        return IREE_COMPILER_AVAILABLE or bool(_get_iree_import_onnx() and _get_iree_compile())
 
     def load(
         self,
@@ -284,13 +286,13 @@ class IREEBackend(Backend):
 
         _logger.debug(f"Loading model: {model_path}")
 
-        model_path = Path(model_path)
+        model_path_obj = Path(model_path)
         device_type = device.split(":")[0] if ":" in device else device
 
         # Determine paths
         target = DEVICE_TO_TARGET.get(device_type, "llvm-cpu")
         cache_dir = Path(kwargs.get("cache_dir", "."))
-        vmfb_path = cache_dir / f"{model_path.stem}_{target}.vmfb"
+        vmfb_path = cache_dir / f"{model_path_obj.stem}_{target}.vmfb"
 
         _logger.debug(f"Target: {target}, cache path: {vmfb_path}")
 
@@ -304,9 +306,9 @@ class IREEBackend(Backend):
         if not IREE_COMPILER_AVAILABLE:
             # Try using CLI tools
             _logger.debug("Using CLI tools for compilation")
-            vmfb_path = self._compile_with_cli(model_path, target, vmfb_path, **kwargs)
+            vmfb_path = self._compile_with_cli(model_path_obj, target, vmfb_path, **kwargs)
         else:
-            vmfb_path = self._compile_with_api(model_path, target, vmfb_path, **kwargs)
+            vmfb_path = self._compile_with_api(model_path_obj, target, vmfb_path, **kwargs)
 
         _logger.info(f"Compilation complete: {vmfb_path}")
         return self._load_vmfb(vmfb_path, device)
@@ -346,15 +348,15 @@ class IREEBackend(Backend):
             module @model {
               func.func @main_graph(...
         """
-        model_path = Path(model_path)
+        model_path_obj = Path(model_path)
 
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model not found: {model_path}")
+        if not model_path_obj.exists():
+            raise FileNotFoundError(f"Model not found: {model_path_obj}")
 
         # Determine output path
-        output_path = model_path.with_suffix(".mlir") if output_path is None else Path(output_path)
+        output_path_obj = model_path_obj.with_suffix(".mlir") if output_path is None else Path(output_path)
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         # Find IREE import tool
         iree_import = _get_iree_import_onnx()
@@ -366,10 +368,10 @@ class IREEBackend(Backend):
             )
 
         # Convert ONNX to MLIR
-        _logger.debug(f"Converting ONNX to MLIR: {model_path} -> {output_path}")
+        _logger.debug(f"Converting ONNX to MLIR: {model_path_obj} -> {output_path_obj}")
         try:
             subprocess.run(
-                [iree_import, str(model_path), "-o", str(output_path)],
+                [iree_import, str(model_path_obj), "-o", str(output_path_obj)],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -383,12 +385,12 @@ class IREEBackend(Backend):
         # Load content if requested
         content = None
         if load_content:
-            content = output_path.read_text()
+            content = output_path_obj.read_text()
 
         return MLIROutput(
-            path=output_path,
+            path=output_path_obj,
             content=content,
-            source_model=model_path,
+            source_model=model_path_obj,
             dialect="iree",
         )
 

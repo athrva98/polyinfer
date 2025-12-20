@@ -44,14 +44,14 @@ def benchmark(
             model(*inputs)
 
         # Benchmark
-        times = []
+        times_list: list[float] = []
         for _ in range(iterations):
             start = time.perf_counter()
             model(*inputs)
             elapsed = (time.perf_counter() - start) * 1000
-            times.append(elapsed)
+            times_list.append(elapsed)
 
-        times = np.array(times)
+        times = np.array(times_list)
         return {
             "backend": backend,
             "device": device,

@@ -268,6 +268,8 @@ def _quantize_onnxruntime(
         ort_calib_method = calib_method_map.get(config.calibration_method, ORTCalibMethod.MinMax)
 
         # Create calibration data reader
+        if calibration_data is None:
+            raise ValueError("calibration_data is required for static quantization")
         data_reader = _create_ort_calibration_reader(model_input, calibration_data, num_samples)
 
         quantize_static(
@@ -368,6 +370,9 @@ class _ORTCalibrationDataReader:
         if self._count >= self.num_samples:
             return None
 
+        if self._data_iter is None:
+            return None
+
         try:
             batch = next(self._data_iter)
             self._count += 1
@@ -375,7 +380,9 @@ class _ORTCalibrationDataReader:
             # Handle single array input
             if isinstance(batch, np.ndarray):
                 return {self._input_names[0]: batch}
-            return batch
+            # Ensure we return the correct type
+            result: dict[str, np.ndarray] = batch
+            return result
         except StopIteration:
             return None
 
@@ -480,40 +487,43 @@ def _quantize_openvino(
 
 def _create_nncf_dataset(model, data: CalibrationData, num_samples: int):
     """Create NNCF Dataset from calibration data."""
+    from typing import Any
+
     import nncf
 
     # Get input names
     input_names = [inp.any_name for inp in model.inputs]
 
-    # Normalize data
+    # Normalize data to a list
+    normalized_data: Any = data
     if callable(data) and not isinstance(data, (list, Iterator)):
-        data = data()
+        normalized_data = data()
 
-    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], np.ndarray):
+    if isinstance(normalized_data, list) and len(normalized_data) > 0 and isinstance(normalized_data[0], np.ndarray):
         # List of arrays
         if len(input_names) != 1:
             raise ValueError(
                 f"Model has {len(input_names)} inputs, but calibration data is a list of arrays."
             )
-        data = [{input_names[0]: arr} for arr in data]
+        normalized_data = [{input_names[0]: arr} for arr in normalized_data]
 
     # Convert to list if iterator
-    if not isinstance(data, list):
-        data = list(data)
+    if not isinstance(normalized_data, list):
+        normalized_data = list(normalized_data)
 
     # Limit samples
-    data = data[:num_samples]
+    data_list: list[Any] = normalized_data[:num_samples]
 
     # Transform function for NNCF
-    def transform_fn(data_item):
+    def transform_fn(data_item: Any) -> tuple[Any, ...]:
         if isinstance(data_item, dict):
             # Return as tuple of arrays in input order
             return tuple(data_item[name] for name in input_names)
         elif isinstance(data_item, np.ndarray):
             return (data_item,)
-        return data_item
+        return (data_item,)
 
-    return nncf.Dataset(data, transform_fn)
+    return nncf.Dataset(data_list, transform_fn)
 
 
 def quantize_for_tensorrt(

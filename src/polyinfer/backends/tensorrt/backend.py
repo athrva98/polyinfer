@@ -76,10 +76,10 @@ class TensorRTModel(CompiledModel):
 
         # For static shapes, pre-allocate GPU buffers
         # For dynamic shapes, allocate lazily on first inference
-        self._d_inputs = {}
-        self._d_outputs = {}
-        self._h_outputs = {}
-        self._allocated_shapes = {}  # Track allocated buffer shapes
+        self._d_inputs: dict[str, int] = {}
+        self._d_outputs: dict[str, int] = {}
+        self._h_outputs: dict[str, np.ndarray] = {}
+        self._allocated_shapes: dict[str, tuple[int, ...]] = {}  # Track allocated buffer shapes
 
         if not self._has_dynamic_shapes:
             self._allocate_buffers()
@@ -108,7 +108,7 @@ class TensorRTModel(CompiledModel):
     def output_shapes(self) -> list[tuple]:
         return self._output_shapes
 
-    def _allocate_buffers(self, input_shapes: dict[str, tuple] = None):
+    def _allocate_buffers(self, input_shapes: dict[str, tuple] | None = None):
         """Allocate GPU buffers for inputs and outputs.
 
         For dynamic shapes, input_shapes must be provided to determine output shapes.
@@ -250,7 +250,7 @@ class TensorRTBackend(Backend):
     @property
     def version(self) -> str:
         if TENSORRT_AVAILABLE:
-            return trt.__version__
+            return str(trt.__version__)
         return "not installed"
 
     @property
@@ -337,9 +337,9 @@ class TensorRTBackend(Backend):
         _logger.debug(f"Using CUDA device: {device_id}")
 
         # Check for cached engine
-        model_path = Path(model_path)
+        model_path_obj = Path(model_path)
         cache_path = kwargs.get("cache_path")
-        cache_path = model_path.with_suffix(".engine") if cache_path is None else Path(cache_path)
+        cache_path = model_path_obj.with_suffix(".engine") if cache_path is None else Path(cache_path)
 
         # Try to load cached engine (unless force_rebuild)
         if cache_path.exists() and not kwargs.get("force_rebuild", False):
@@ -348,7 +348,7 @@ class TensorRTBackend(Backend):
 
         # Build engine from ONNX with full options
         _logger.info("Building TensorRT engine from ONNX (this may take a while)...")
-        engine = self._build_engine(model_path, **kwargs)
+        engine = self._build_engine(model_path_obj, **kwargs)
 
         # Cache the engine
         _logger.debug(f"Saving engine to: {cache_path}")

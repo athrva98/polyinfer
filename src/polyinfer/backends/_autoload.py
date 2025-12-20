@@ -227,7 +227,7 @@ def _register_lazy_iree():
         def version(self) -> str:
             try:
                 self._ensure_loaded()
-                return self._real_backend.version
+                return str(self._real_backend.version)
             except Exception:
                 return "not loaded"
 
@@ -321,7 +321,7 @@ def _register_lazy_onnxruntime():
         def version(self) -> str:
             try:
                 self._ensure_loaded()
-                return self._real_backend.version
+                return str(self._real_backend.version)
             except Exception:
                 return "not loaded"
 
@@ -354,5 +354,5 @@ def _register_lazy_onnxruntime():
 
     # TODO: Narrow exception suppression to specific types once register_backend()
     #   error conditions are documented.
-    with contextlib.supress(Exception):
+    with contextlib.suppress(Exception):
         register_backend("onnxruntime", LazyONNXRuntimeBackend)

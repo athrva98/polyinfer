@@ -90,7 +90,7 @@ def list_devices() -> list[DeviceInfo]:
         cpu (cpu) - backends: [onnxruntime, openvino]
         cuda:0 (cuda) - backends: [onnxruntime]
     """
-    devices = {}
+    devices: dict[str, dict[str, list[str] | str]] = {}
 
     # Collect devices from all backends
     for backend_name in _list_backends(available_only=True):
@@ -102,18 +102,22 @@ def list_devices() -> list[DeviceInfo]:
                         "backends": [],
                         "type": device.split(":")[0] if ":" in device else device,
                     }
-                devices[device]["backends"].append(backend_name)
+                backends_list = devices[device]["backends"]
+                if isinstance(backends_list, list):
+                    backends_list.append(backend_name)
         except Exception:
             continue
 
     # Build DeviceInfo list
-    result = []
+    result: list[DeviceInfo] = []
     for name, info in sorted(devices.items()):
+        device_type = info["type"]
+        backends = info["backends"]
         result.append(
             DeviceInfo(
                 name=name,
-                device_type=info["type"],
-                backends=info["backends"],
+                device_type=str(device_type),
+                backends=list(backends) if isinstance(backends, list) else [backends],
             )
         )
 
@@ -178,29 +182,34 @@ def system_info() -> dict:
     }
 
     # Backend info
+    backends_dict = info["backends"]
     for name in _list_backends(available_only=False):
         try:
             backend = _get_backend(name)
-            info["backends"][name] = {
-                "available": backend.is_available(),
-                "version": backend.version,
-                "devices": backend.supported_devices,
-                "priority": backend.priority,
-            }
+            if isinstance(backends_dict, dict):
+                backends_dict[name] = {
+                    "available": backend.is_available(),
+                    "version": backend.version,
+                    "devices": backend.supported_devices,
+                    "priority": backend.priority,
+                }
         except Exception as e:
-            info["backends"][name] = {
-                "available": False,
-                "error": str(e),
-            }
+            if isinstance(backends_dict, dict):
+                backends_dict[name] = {
+                    "available": False,
+                    "error": str(e),
+                }
 
     # Device info
+    devices_list = info["devices"]
     for device in list_devices():
-        info["devices"].append(
-            {
-                "name": device.name,
-                "type": device.device_type,
-                "backends": device.backends,
-            }
-        )
+        if isinstance(devices_list, list):
+            devices_list.append(
+                {
+                    "name": device.name,
+                    "type": device.device_type,
+                    "backends": device.backends,
+                }
+            )
 
     return info

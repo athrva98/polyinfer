@@ -80,11 +80,11 @@ class OpenVINOModel(CompiledModel):
 
     @property
     def input_shapes(self) -> list[tuple]:
-        return self._input_shapes
+        return [tuple(s) for s in self._input_shapes]
 
     @property
     def output_shapes(self) -> list[tuple]:
-        return self._output_shapes
+        return [tuple(s) for s in self._output_shapes]
 
     def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
@@ -103,7 +103,8 @@ class OpenVINOModel(CompiledModel):
             outputs.append(output_tensor.data.copy())
 
         if len(outputs) == 1:
-            return outputs[0]
+            result: np.ndarray = outputs[0]
+            return result
         return tuple(outputs)
 
     def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
@@ -167,7 +168,7 @@ class OpenVINOBackend(Backend):
     @property
     def version(self) -> str:
         if OPENVINO_AVAILABLE:
-            return ov.__version__
+            return str(ov.__version__)
         return "not installed"
 
     @property
@@ -182,7 +183,7 @@ class OpenVINOBackend(Backend):
         """Get raw OpenVINO device names."""
         if not OPENVINO_AVAILABLE:
             return []
-        return self.core.available_devices
+        return list(self.core.available_devices)
 
     def load(
         self,

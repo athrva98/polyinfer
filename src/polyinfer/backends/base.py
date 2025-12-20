@@ -96,14 +96,14 @@ class CompiledModel(ABC):
             self(*inputs)
 
         # Benchmark
-        times = []
+        times_list: list[float] = []
         for _ in range(iterations):
             start = time.perf_counter()
             self(*inputs)
             elapsed = (time.perf_counter() - start) * 1000  # ms
-            times.append(elapsed)
+            times_list.append(elapsed)
 
-        times = np.array(times)
+        times = np.array(times_list)
         return {
             "backend": self.backend_name,
             "device": self.device,
