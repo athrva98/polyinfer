@@ -40,7 +40,8 @@ def dummy_onnx_model(tmp_path):
         [const_tensor],
     )
 
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    model.ir_version = 8  # Use IR version 8 for broader compatibility
     model_path = tmp_path / "test_model.onnx"
     onnx.save(model, str(model_path))
 
