@@ -12,11 +12,11 @@ MLIR emission for custom hardware support:
 """
 
 from polyinfer.backends.iree.backend import (
+    DEVICE_TO_DRIVER,
+    DEVICE_TO_TARGET,
     IREEBackend,
     IREEModel,
     MLIROutput,
-    DEVICE_TO_TARGET,
-    DEVICE_TO_DRIVER,
 )
 
 __all__ = [

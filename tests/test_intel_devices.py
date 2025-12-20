@@ -1,9 +1,14 @@
 """Test polyinfer with Intel devices (CPU, iGPU, NPU)."""
+
+import os
 import sys
+
 sys.path.insert(0, "src")
 
 import numpy as np
+
 import polyinfer as pi
+from polyinfer.backends.openvino import OpenVINOBackend
 
 # Check what's available
 print("=" * 60)
@@ -14,12 +19,10 @@ print("\nAvailable backends:", pi.list_backends())
 print("Available devices:", pi.list_devices())
 
 # Get OpenVINO backend directly to see raw device names
-from polyinfer.backends.openvino import OpenVINOBackend
 ov_backend = OpenVINOBackend()
 print("\nOpenVINO raw devices:", ov_backend.get_available_devices())
 
 # Test model path, use YOLOv8n if available
-import os
 model_path = None
 for path in ["yolov8n.onnx", "examples/yolov8n.onnx", "../yolov8n.onnx"]:
     if os.path.exists(path):
@@ -30,11 +33,14 @@ if model_path is None:
     print("\nNo test model found. Downloading yolov8n.onnx...")
     try:
         from ultralytics import YOLO
+
         model = YOLO("yolov8n.pt")
         model.export(format="onnx")
         model_path = "yolov8n.onnx"
     except ImportError:
-        print("Please provide a model: pip install ultralytics && yolo export model=yolov8n.pt format=onnx")
+        print(
+            "Please provide a model: pip install ultralytics && yolo export model=yolov8n.pt format=onnx"
+        )
         sys.exit(1)
 
 print(f"\nUsing model: {model_path}")
@@ -64,7 +70,7 @@ for device, description in devices_to_test:
         # Benchmark
         bench = model.benchmark(input_data, warmup=5, iterations=20)
         print(f"  Latency: {bench['mean_ms']:.2f} ms ({bench['fps']:.1f} FPS)")
-        results.append((device, description, bench['mean_ms'], bench['fps']))
+        results.append((device, description, bench["mean_ms"], bench["fps"]))
     except Exception as e:
         print(f"  ERROR: {e}")
         results.append((device, description, None, None))

@@ -28,40 +28,39 @@ __version__ = "0.1.0"
 
 # Auto-setup NVIDIA libraries BEFORE importing anything else
 # This ensures CUDA, cuDNN, TensorRT DLLs are findable
-from polyinfer import nvidia_setup as _nvidia_setup
-from polyinfer.nvidia_setup import fix_onnxruntime_conflict, get_nvidia_info, setup_tensorrt_paths
-
-from polyinfer.model import load, Model
-from polyinfer.discovery import (
-    list_backends,
-    list_devices,
-    get_backend,
-    is_available,
-)
-from polyinfer.config import InferenceConfig
-from polyinfer.compare import compare, benchmark
-from polyinfer.mlir import export_mlir, compile_mlir, MLIROutput
-from polyinfer.quantization import (
-    quantize,
-    quantize_dynamic,
-    quantize_static,
-    convert_to_fp16,
-    quantize_for_tensorrt,
-    QuantizationResult,
-    QuantizationConfig,
-    QuantizationMethod,
-    QuantizationType,
-    CalibrationMethod,
-)
+from polyinfer import nvidia_setup as _nvidia_setup  # noqa: F401
 from polyinfer._logging import (
-    get_logger,
-    set_log_level,
+    LogContext,
+    configure_logging,
+    disable_logging,
+    enable_logging,
     get_log_level,
     get_log_level_name,
-    enable_logging,
-    disable_logging,
-    configure_logging,
-    LogContext,
+    get_logger,
+    set_log_level,
+)
+from polyinfer.compare import benchmark, compare
+from polyinfer.config import InferenceConfig
+from polyinfer.discovery import (
+    get_backend,
+    is_available,
+    list_backends,
+    list_devices,
+)
+from polyinfer.mlir import MLIROutput, compile_mlir, export_mlir
+from polyinfer.model import Model, load
+from polyinfer.nvidia_setup import fix_onnxruntime_conflict, get_nvidia_info, setup_tensorrt_paths
+from polyinfer.quantization import (
+    CalibrationMethod,
+    QuantizationConfig,
+    QuantizationMethod,
+    QuantizationResult,
+    QuantizationType,
+    convert_to_fp16,
+    quantize,
+    quantize_dynamic,
+    quantize_for_tensorrt,
+    quantize_static,
 )
 
 __all__ = [

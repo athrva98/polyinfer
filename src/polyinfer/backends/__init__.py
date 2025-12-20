@@ -2,11 +2,11 @@
 
 from polyinfer.backends.base import Backend, CompiledModel
 from polyinfer.backends.registry import (
-    register_backend,
-    get_backend,
-    list_backends,
-    get_backends_for_device,
     BackendInfo,
+    get_backend,
+    get_backends_for_device,
+    list_backends,
+    register_backend,
 )
 
 __all__ = [

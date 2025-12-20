@@ -1,21 +1,21 @@
 """Pytest configuration and shared fixtures for polyinfer tests."""
 
-import os
 import sys
-import pytest
-import numpy as np
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 # Add src to path for development
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import polyinfer as pi
-from polyinfer.backends.registry import get_all_backends, get_backend
-
+from polyinfer.backends.registry import get_all_backends
 
 # =============================================================================
 # Test Model Fixtures
 # =============================================================================
+
 
 @pytest.fixture(scope="session")
 def model_path():
@@ -34,6 +34,7 @@ def model_path():
     # Try to download/export
     try:
         from ultralytics import YOLO
+
         model = YOLO("yolov8n.pt")
         export_path = Path(__file__).parent.parent / "yolov8n.onnx"
         model.export(format="onnx")
@@ -50,7 +51,7 @@ def simple_model_path(tmp_path_factory):
     """Create a simple ONNX model for basic tests."""
     try:
         import onnx
-        from onnx import helper, TensorProto
+        from onnx import TensorProto, helper
 
         # Create a simple model: Y = X + 1
         X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 3, 224, 224])
@@ -58,21 +59,12 @@ def simple_model_path(tmp_path_factory):
 
         # Constant tensor of ones
         ones = helper.make_tensor(
-            "ones",
-            TensorProto.FLOAT,
-            [1, 3, 224, 224],
-            [1.0] * (1 * 3 * 224 * 224)
+            "ones", TensorProto.FLOAT, [1, 3, 224, 224], [1.0] * (1 * 3 * 224 * 224)
         )
 
         add_node = helper.make_node("Add", ["X", "ones"], ["Y"])
 
-        graph = helper.make_graph(
-            [add_node],
-            "simple_add",
-            [X],
-            [Y],
-            [ones]
-        )
+        graph = helper.make_graph([add_node], "simple_add", [X], [Y], [ones])
 
         model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
 
@@ -89,6 +81,7 @@ def simple_model_path(tmp_path_factory):
 # =============================================================================
 # Input Data Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def yolo_input():
@@ -113,6 +106,7 @@ def batch_input():
 # Backend/Device Discovery Fixtures
 # =============================================================================
 
+
 @pytest.fixture(scope="session")
 def available_backends():
     """Get list of available backends."""
@@ -134,6 +128,7 @@ def all_backends():
 # =============================================================================
 # Device-specific Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def has_cuda():
@@ -186,6 +181,7 @@ def has_vulkan():
 # =============================================================================
 # Markers
 # =============================================================================
+
 
 def pytest_configure(config):
     """Register custom markers."""

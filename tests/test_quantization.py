@@ -1,9 +1,9 @@
 """Tests for quantization functionality."""
 
-import pytest
+import importlib.util
+
 import numpy as np
-from pathlib import Path
-import tempfile
+import pytest
 
 import polyinfer as pi
 
@@ -54,17 +54,13 @@ class TestDynamicQuantization:
         """Create a simple ONNX model for testing."""
         try:
             import onnx
-            from onnx import helper, TensorProto
+            from onnx import TensorProto, helper
         except ImportError:
             pytest.skip("ONNX not installed")
 
         # Create simple model: output = input * 2
-        input_tensor = helper.make_tensor_value_info(
-            "input", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
-        output_tensor = helper.make_tensor_value_info(
-            "output", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
+        input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 32, 32])
+        output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3, 32, 32])
         const_tensor = helper.make_tensor("const", TensorProto.FLOAT, [1], [2.0])
         mul_node = helper.make_node("Mul", ["input", "const"], ["output"], name="mul")
         graph = helper.make_graph(
@@ -143,16 +139,12 @@ class TestStaticQuantization:
         """Create a simple ONNX model for testing."""
         try:
             import onnx
-            from onnx import helper, TensorProto
+            from onnx import TensorProto, helper
         except ImportError:
             pytest.skip("ONNX not installed")
 
-        input_tensor = helper.make_tensor_value_info(
-            "input", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
-        output_tensor = helper.make_tensor_value_info(
-            "output", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
+        input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 32, 32])
+        output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3, 32, 32])
         const_tensor = helper.make_tensor("const", TensorProto.FLOAT, [1], [2.0])
         mul_node = helper.make_node("Mul", ["input", "const"], ["output"], name="mul")
         graph = helper.make_graph(
@@ -201,11 +193,10 @@ class TestStaticQuantization:
         output_path = tmp_path / "model_int8.onnx"
 
         calibration_data = [
-            {"input": np.random.rand(1, 3, 32, 32).astype(np.float32)}
-            for _ in range(10)
+            {"input": np.random.rand(1, 3, 32, 32).astype(np.float32)} for _ in range(10)
         ]
 
-        result = pi.quantize_static(
+        pi.quantize_static(
             simple_model,
             output_path,
             calibration_data=calibration_data,
@@ -218,7 +209,7 @@ class TestStaticQuantization:
         """Test static quantization with per-channel option."""
         output_path = tmp_path / "model_int8.onnx"
 
-        result = pi.quantize_static(
+        pi.quantize_static(
             simple_model,
             output_path,
             calibration_data=calibration_data,
@@ -227,11 +218,13 @@ class TestStaticQuantization:
 
         assert output_path.exists()
 
-    def test_static_quantization_entropy_calibration(self, simple_model, tmp_path, calibration_data):
+    def test_static_quantization_entropy_calibration(
+        self, simple_model, tmp_path, calibration_data
+    ):
         """Test static quantization with entropy calibration."""
         output_path = tmp_path / "model_int8.onnx"
 
-        result = pi.quantize(
+        pi.quantize(
             simple_model,
             output_path,
             method="static",
@@ -250,16 +243,12 @@ class TestFP16Conversion:
         """Create a simple ONNX model for testing."""
         try:
             import onnx
-            from onnx import helper, TensorProto
+            from onnx import TensorProto, helper
         except ImportError:
             pytest.skip("ONNX not installed")
 
-        input_tensor = helper.make_tensor_value_info(
-            "input", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
-        output_tensor = helper.make_tensor_value_info(
-            "output", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
+        input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 32, 32])
+        output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3, 32, 32])
         const_tensor = helper.make_tensor("const", TensorProto.FLOAT, [1], [2.0])
         mul_node = helper.make_node("Mul", ["input", "const"], ["output"], name="mul")
         graph = helper.make_graph(
@@ -274,9 +263,7 @@ class TestFP16Conversion:
 
     def test_fp16_conversion(self, simple_model, tmp_path):
         """Test FP16 conversion."""
-        try:
-            import onnxconverter_common
-        except ImportError:
+        if importlib.util.find_spec("onnxconverter_common") is None:
             pytest.skip("onnxconverter-common not installed")
 
         output_path = tmp_path / "model_fp16.onnx"
@@ -288,9 +275,7 @@ class TestFP16Conversion:
 
     def test_fp16_via_quantize(self, simple_model, tmp_path):
         """Test FP16 conversion via quantize()."""
-        try:
-            import onnxconverter_common
-        except ImportError:
+        if importlib.util.find_spec("onnxconverter_common") is None:
             pytest.skip("onnxconverter-common not installed")
 
         output_path = tmp_path / "model_fp16.onnx"
@@ -306,9 +291,7 @@ class TestFP16Conversion:
 
     def test_fp16_model_runs(self, simple_model, tmp_path):
         """Test that FP16 model can be loaded and run."""
-        try:
-            import onnxconverter_common
-        except ImportError:
+        if importlib.util.find_spec("onnxconverter_common") is None:
             pytest.skip("onnxconverter-common not installed")
 
         output_path = tmp_path / "model_fp16.onnx"
@@ -329,16 +312,12 @@ class TestQuantizationResult:
         """Create a simple ONNX model for testing."""
         try:
             import onnx
-            from onnx import helper, TensorProto
+            from onnx import TensorProto, helper
         except ImportError:
             pytest.skip("ONNX not installed")
 
-        input_tensor = helper.make_tensor_value_info(
-            "input", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
-        output_tensor = helper.make_tensor_value_info(
-            "output", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
+        input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 32, 32])
+        output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3, 32, 32])
         const_tensor = helper.make_tensor("const", TensorProto.FLOAT, [1], [2.0])
         mul_node = helper.make_node("Mul", ["input", "const"], ["output"], name="mul")
         graph = helper.make_graph(
@@ -385,16 +364,12 @@ class TestOpenVINOQuantization:
         """Create a simple ONNX model for testing."""
         try:
             import onnx
-            from onnx import helper, TensorProto
+            from onnx import TensorProto, helper
         except ImportError:
             pytest.skip("ONNX not installed")
 
-        input_tensor = helper.make_tensor_value_info(
-            "input", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
-        output_tensor = helper.make_tensor_value_info(
-            "output", TensorProto.FLOAT, [1, 3, 32, 32]
-        )
+        input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 32, 32])
+        output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3, 32, 32])
         const_tensor = helper.make_tensor("const", TensorProto.FLOAT, [1], [2.0])
         mul_node = helper.make_node("Mul", ["input", "const"], ["output"], name="mul")
         graph = helper.make_graph(
@@ -415,10 +390,7 @@ class TestOpenVINOQuantization:
     @pytest.mark.openvino
     def test_openvino_quantization(self, simple_model, tmp_path, calibration_data):
         """Test OpenVINO NNCF quantization."""
-        try:
-            import nncf
-            import openvino
-        except ImportError:
+        if importlib.util.find_spec("nncf") is None or importlib.util.find_spec("openvino") is None:
             pytest.skip("OpenVINO/NNCF not installed")
 
         output_path = tmp_path / "model_int8.onnx"

@@ -1,7 +1,9 @@
 """Auto-load and register available backends."""
 
-import sys
+import contextlib
 import logging
+import sys
+
 from polyinfer.backends.registry import register_backend
 
 # Use logging module directly to avoid circular imports
@@ -69,6 +71,7 @@ def _should_use_lazy_onnxruntime() -> bool:
     # Check if onnxruntime-gpu is installed (vs plain onnxruntime)
     try:
         import importlib.metadata as metadata
+
         metadata.version("onnxruntime-gpu")
         return True  # onnxruntime-gpu installed, use lazy loading
     except Exception:
@@ -202,13 +205,14 @@ def _register_lazy_iree():
             cls._import_attempted = True
             try:
                 from polyinfer.backends.iree.backend import IREEBackend
+
                 cls._real_backend = IREEBackend()
             except ImportError as e:
                 cls._import_error = RuntimeError(
                     f"IREE not available: {e}. "
                     "Install with: pip install iree-base-runtime iree-base-compiler"
                 )
-                raise cls._import_error
+                raise cls._import_error from e
 
         @property
         def name(self) -> str:
@@ -234,6 +238,7 @@ def _register_lazy_iree():
         def is_available(self) -> bool:
             try:
                 import importlib.metadata as metadata
+
                 metadata.version("iree-base-runtime")
                 return True
             except Exception:
@@ -245,10 +250,8 @@ def _register_lazy_iree():
             self._ensure_loaded()
             return self._real_backend.load(model_path, device, **kwargs)
 
-    try:
+    with contextlib.suppress(Exception):
         register_backend("iree", LazyIREEBackend)
-    except Exception:
-        pass
 
 
 def _register_lazy_onnxruntime():
@@ -282,13 +285,14 @@ def _register_lazy_onnxruntime():
             cls._import_attempted = True
             try:
                 from polyinfer.backends.onnxruntime.backend import ONNXRuntimeBackend
+
                 cls._real_backend = ONNXRuntimeBackend()
             except ImportError as e:
                 cls._import_error = RuntimeError(
                     f"ONNX Runtime not available: {e}. "
                     "Install with: pip install onnxruntime or onnxruntime-gpu"
                 )
-                raise cls._import_error
+                raise cls._import_error from e
 
         @property
         def name(self) -> str:
@@ -301,6 +305,7 @@ def _register_lazy_onnxruntime():
             devices = ["cpu"]
             try:
                 import importlib.metadata as metadata
+
                 # If onnxruntime-gpu is installed, CUDA devices are likely available
                 metadata.version("onnxruntime-gpu")
                 devices.append("cuda")
@@ -328,12 +333,14 @@ def _register_lazy_onnxruntime():
             # Check if onnxruntime package exists without importing it
             try:
                 import importlib.metadata as metadata
+
                 metadata.version("onnxruntime")
                 return True
             except Exception:
                 pass
             try:
                 import importlib.metadata as metadata
+
                 metadata.version("onnxruntime-gpu")
                 return True
             except Exception:
@@ -345,7 +352,7 @@ def _register_lazy_onnxruntime():
             self._ensure_loaded()
             return self._real_backend.load(model_path, device, **kwargs)
 
-    try:
+    # TODO: Narrow exception suppression to specific types once register_backend()
+    #   error conditions are documented.
+    with contextlib.supress(Exception):
         register_backend("onnxruntime", LazyONNXRuntimeBackend)
-    except Exception:
-        pass  # Registration failed, skip silently

@@ -24,21 +24,25 @@ Basic usage:
     pi.quantize("model.onnx", "model_fp16.onnx", dtype="fp16")
 """
 
+import importlib.util
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Iterator, Union, Any
+
 import numpy as np
 
 
 class QuantizationMethod(Enum):
     """Quantization methods available."""
-    DYNAMIC = "dynamic"      # Dynamic INT8 (no calibration needed)
-    STATIC = "static"        # Static INT8 (requires calibration data)
+
+    DYNAMIC = "dynamic"  # Dynamic INT8 (no calibration needed)
+    STATIC = "static"  # Static INT8 (requires calibration data)
 
 
 class QuantizationType(Enum):
     """Target quantization data type."""
+
     INT8 = "int8"
     UINT8 = "uint8"
     INT4 = "int4"
@@ -48,14 +52,16 @@ class QuantizationType(Enum):
 
 class CalibrationMethod(Enum):
     """Calibration methods for static quantization."""
-    MINMAX = "minmax"        # Min-max calibration
-    ENTROPY = "entropy"      # Entropy-based calibration (KL divergence)
+
+    MINMAX = "minmax"  # Min-max calibration
+    ENTROPY = "entropy"  # Entropy-based calibration (KL divergence)
     PERCENTILE = "percentile"  # Percentile-based calibration
 
 
 @dataclass
 class QuantizationConfig:
     """Configuration for quantization."""
+
     method: QuantizationMethod = QuantizationMethod.DYNAMIC
     dtype: QuantizationType = QuantizationType.INT8
     calibration_method: CalibrationMethod = CalibrationMethod.MINMAX
@@ -69,6 +75,7 @@ class QuantizationConfig:
 @dataclass
 class QuantizationResult:
     """Result of quantization operation."""
+
     input_path: Path
     output_path: Path
     backend: str
@@ -80,12 +87,12 @@ class QuantizationResult:
 
 
 # Type alias for calibration data
-CalibrationData = Union[
-    Iterator[dict[str, np.ndarray]],  # Iterator yielding input dicts
-    Callable[[], Iterator[dict[str, np.ndarray]]],  # Factory function
-    list[dict[str, np.ndarray]],  # List of input dicts
-    list[np.ndarray],  # List of input arrays (single input models)
-]
+CalibrationData = (
+    Iterator[dict[str, np.ndarray]]  # Iterator yielding input dicts
+    | Callable[[], Iterator[dict[str, np.ndarray]]]  # Factory function
+    | list[dict[str, np.ndarray]]  # List of input dicts
+    | list[np.ndarray]  # List of input arrays (single input models)
+)
 
 
 def quantize(
@@ -167,11 +174,7 @@ def quantize(
         if quant_dtype in (QuantizationType.FP16, QuantizationType.BF16):
             backend = "onnxruntime"
         elif quant_method == QuantizationMethod.STATIC:
-            try:
-                import nncf
-                backend = "openvino"
-            except ImportError:
-                backend = "onnxruntime"
+            backend = "openvino" if importlib.util.find_spec("nncf") is not None else "onnxruntime"
         else:
             backend = "onnxruntime"
 
@@ -212,18 +215,16 @@ def _quantize_onnxruntime(
     """Quantize using ONNX Runtime quantization tools."""
     try:
         from onnxruntime.quantization import (
+            QuantFormat,
+            QuantType,
             quantize_dynamic,
             quantize_static,
-            QuantType,
-            QuantFormat,
-            CalibrationDataReader,
         )
         from onnxruntime.quantization.calibrate import CalibrationMethod as ORTCalibMethod
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
-            "onnxruntime quantization not available. "
-            "Install with: pip install onnxruntime"
-        )
+            "onnxruntime quantization not available. Install with: pip install onnxruntime"
+        ) from e
 
     # Map dtype to QuantType
     dtype_map = {
@@ -267,9 +268,7 @@ def _quantize_onnxruntime(
         ort_calib_method = calib_method_map.get(config.calibration_method, ORTCalibMethod.MinMax)
 
         # Create calibration data reader
-        data_reader = _create_ort_calibration_reader(
-            model_input, calibration_data, num_samples
-        )
+        data_reader = _create_ort_calibration_reader(model_input, calibration_data, num_samples)
 
         quantize_static(
             model_input=str(model_input),
@@ -303,13 +302,13 @@ def _quantize_onnxruntime(
 def _convert_to_fp16_onnx(model_input: Path, model_output: Path) -> None:
     """Convert ONNX model to FP16."""
     try:
-        from onnxconverter_common import float16
         import onnx
-    except ImportError:
+        from onnxconverter_common import float16
+    except ImportError as e:
         raise ImportError(
             "FP16 conversion requires onnxconverter-common. "
             "Install with: pip install onnxconverter-common"
-        )
+        ) from e
 
     model = onnx.load(str(model_input))
     model_fp16 = float16.convert_float_to_float16(model, keep_io_types=True)
@@ -332,6 +331,7 @@ class _ORTCalibrationDataReader:
 
         # Get input names from model
         import onnxruntime as ort
+
         sess = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
         self._input_names = [inp.name for inp in sess.get_inputs()]
         del sess
@@ -350,16 +350,15 @@ class _ORTCalibrationDataReader:
 
         if isinstance(data, list):
             # Convert list to iterator
-            if len(data) > 0:
-                if isinstance(data[0], np.ndarray):
-                    # List of arrays - wrap in dicts
-                    if len(self._input_names) != 1:
-                        raise ValueError(
-                            f"Model has {len(self._input_names)} inputs, "
-                            "but calibration data is a list of arrays. "
-                            "Use list of dicts instead."
-                        )
-                    data = [{self._input_names[0]: arr} for arr in data]
+            if len(data) > 0 and isinstance(data[0], np.ndarray):
+                # List of arrays - wrap in dicts
+                if len(self._input_names) != 1:
+                    raise ValueError(
+                        f"Model has {len(self._input_names)} inputs, "
+                        "but calibration data is a list of arrays. "
+                        "Use list of dicts instead."
+                    )
+                data = [{self._input_names[0]: arr} for arr in data]
             self._data_iter = iter(data)
         else:
             self._data_iter = data
@@ -406,11 +405,10 @@ def _quantize_openvino(
     try:
         import nncf
         import openvino as ov
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
-            "OpenVINO NNCF not available. "
-            "Install with: pip install openvino nncf"
-        )
+            "OpenVINO NNCF not available. Install with: pip install openvino nncf"
+        ) from e
 
     original_size = model_input.stat().st_size / (1024 * 1024)
 
@@ -422,9 +420,8 @@ def _quantize_openvino(
     if config.dtype == QuantizationType.FP16:
         # OpenVINO doesn't have direct FP16 quantization, use compress_to_fp16
         try:
-            from openvino.runtime import serialize
             # Compile with FP16 inference precision hint
-            model_fp16 = ov.compile_model(model, "CPU", {"INFERENCE_PRECISION_HINT": "f16"})
+            ov.compile_model(model, "CPU", {"INFERENCE_PRECISION_HINT": "f16"})
             # For saving, we need to serialize the original model
             # OpenVINO FP16 is handled at compile time, not model level
             # Fall back to ONNX Runtime for FP16
@@ -447,7 +444,9 @@ def _quantize_openvino(
     quantized_model = nncf.quantize(
         model,
         nncf_dataset,
-        preset=nncf.QuantizationPreset.MIXED if config.per_channel else nncf.QuantizationPreset.PERFORMANCE,
+        preset=nncf.QuantizationPreset.MIXED
+        if config.per_channel
+        else nncf.QuantizationPreset.PERFORMANCE,
         target_device=nncf.TargetDevice.CPU,
         subset_size=num_samples,
     )
@@ -455,13 +454,13 @@ def _quantize_openvino(
     # Save the quantized model
     # Determine output format based on extension
     output_str = str(model_output)
-    if output_str.endswith('.onnx'):
+    if output_str.endswith(".onnx"):
         # Save as ONNX
         ov.save_model(quantized_model, output_str)
     else:
         # Save as OpenVINO IR
-        if not output_str.endswith('.xml'):
-            output_str = output_str + '.xml'
+        if not output_str.endswith(".xml"):
+            output_str = output_str + ".xml"
         ov.save_model(quantized_model, output_str)
         model_output = Path(output_str)
 
@@ -490,15 +489,13 @@ def _create_nncf_dataset(model, data: CalibrationData, num_samples: int):
     if callable(data) and not isinstance(data, (list, Iterator)):
         data = data()
 
-    if isinstance(data, list):
-        if len(data) > 0 and isinstance(data[0], np.ndarray):
-            # List of arrays
-            if len(input_names) != 1:
-                raise ValueError(
-                    f"Model has {len(input_names)} inputs, "
-                    "but calibration data is a list of arrays."
-                )
-            data = [{input_names[0]: arr} for arr in data]
+    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], np.ndarray):
+        # List of arrays
+        if len(input_names) != 1:
+            raise ValueError(
+                f"Model has {len(input_names)} inputs, but calibration data is a list of arrays."
+            )
+        data = [{input_names[0]: arr} for arr in data]
 
     # Convert to list if iterator
     if not isinstance(data, list):
@@ -589,6 +586,7 @@ def quantize_for_tensorrt(
 
 
 # Convenience functions
+
 
 def quantize_dynamic(
     model_input: str | Path,

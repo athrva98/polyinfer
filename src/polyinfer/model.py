@@ -1,13 +1,13 @@
 """Unified model loading and inference for PolyInfer."""
 
 from pathlib import Path
-from typing import Union
+
 import numpy as np
 
-from polyinfer.backends.base import CompiledModel
-from polyinfer.discovery import select_backend, get_backend
-from polyinfer.config import InferenceConfig
 from polyinfer._logging import get_logger
+from polyinfer.backends.base import CompiledModel
+from polyinfer.config import InferenceConfig
+from polyinfer.discovery import get_backend, select_backend
 
 _logger = get_logger("model")
 
@@ -73,7 +73,9 @@ class Model:
             _logger.debug(f"Auto-selecting backend for device: {device}")
             self._backend = select_backend(device)
 
-        _logger.debug(f"Selected backend: {self._backend.name} (priority: {self._backend.priority})")
+        _logger.debug(
+            f"Selected backend: {self._backend.name} (priority: {self._backend.priority})"
+        )
 
         # Load the model
         _logger.debug(f"Loading with device: {device}")
@@ -122,6 +124,7 @@ class Model:
             # Check if native tensorrt backend is available
             try:
                 from polyinfer.backends.registry import _backends
+
                 if "tensorrt" in _backends and _backends["tensorrt"].is_available():
                     return "tensorrt", device  # Use native
             except Exception:
@@ -162,7 +165,7 @@ class Model:
         """Return output tensor shapes."""
         return self._model.output_shapes
 
-    def __call__(self, *inputs: np.ndarray) -> Union[np.ndarray, tuple[np.ndarray, ...]]:
+    def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference.
 
         Args:

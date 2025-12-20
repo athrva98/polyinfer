@@ -145,15 +145,13 @@ def compile_mlir(
     )
 
 
-# Re-export MLIROutput for convenience
 def __getattr__(name: str):
+    """Lazy import for MLIROutput to avoid loading IREE at module import time."""
     if name == "MLIROutput":
         from polyinfer.backends.iree.backend import MLIROutput
+
         return MLIROutput
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-
-# For static type checkers
-from polyinfer.backends.iree.backend import MLIROutput
 
 __all__ = ["export_mlir", "compile_mlir", "MLIROutput"]

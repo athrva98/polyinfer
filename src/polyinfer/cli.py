@@ -6,8 +6,9 @@ import sys
 
 def cmd_info(args):
     """Show system information."""
-    import polyinfer as pi
     import json
+
+    import polyinfer as pi
 
     info = pi.discovery.system_info()
 
@@ -36,8 +37,9 @@ def cmd_info(args):
 
 def cmd_benchmark(args):
     """Benchmark a model."""
-    import polyinfer as pi
     import numpy as np
+
+    import polyinfer as pi
 
     # Parse input shape
     input_shape = tuple(int(x) for x in args.input_shape.split(","))
@@ -74,8 +76,9 @@ def cmd_benchmark(args):
 
 def cmd_run(args):
     """Run inference on a model."""
-    import polyinfer as pi
     import numpy as np
+
+    import polyinfer as pi
 
     # Load model
     model = pi.load(args.model, device=args.device, backend=args.backend)
@@ -119,16 +122,22 @@ def main():
     bench_parser.add_argument("model", help="Path to ONNX model")
     bench_parser.add_argument("--device", "-d", default="cpu", help="Target device")
     bench_parser.add_argument("--backend", "-b", help="Specific backend to use")
-    bench_parser.add_argument("--input-shape", "-s", default="1,3,224,224", help="Input shape (comma-separated)")
+    bench_parser.add_argument(
+        "--input-shape", "-s", default="1,3,224,224", help="Input shape (comma-separated)"
+    )
     bench_parser.add_argument("--warmup", "-w", type=int, default=10, help="Warmup iterations")
-    bench_parser.add_argument("--iterations", "-n", type=int, default=100, help="Benchmark iterations")
+    bench_parser.add_argument(
+        "--iterations", "-n", type=int, default=100, help="Benchmark iterations"
+    )
 
     # Run command
     run_parser = subparsers.add_parser("run", help="Run inference")
     run_parser.add_argument("model", help="Path to ONNX model")
     run_parser.add_argument("--device", "-d", default="cpu", help="Target device")
     run_parser.add_argument("--backend", "-b", help="Specific backend to use")
-    run_parser.add_argument("--input-shape", "-s", default="1,3,224,224", help="Input shape (comma-separated)")
+    run_parser.add_argument(
+        "--input-shape", "-s", default="1,3,224,224", help="Input shape (comma-separated)"
+    )
 
     args = parser.parse_args()
 

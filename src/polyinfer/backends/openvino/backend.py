@@ -1,17 +1,18 @@
 """OpenVINO backend implementation."""
 
-from typing import Union
 import numpy as np
 
-from polyinfer.backends.base import Backend, CompiledModel
 from polyinfer._logging import get_logger
+from polyinfer.backends.base import Backend, CompiledModel
 
 _logger = get_logger("backends.openvino")
 
 # Check if OpenVINO is available
 try:
     import openvino as ov
-    from openvino import Core, CompiledModel as OVCompiledModel, Tensor as OVTensor
+    from openvino import CompiledModel as OVCompiledModel
+    from openvino import Core
+    from openvino import Tensor as OVTensor
 
     OPENVINO_AVAILABLE = True
     _logger.debug(f"OpenVINO {ov.__version__} available")
@@ -24,10 +25,10 @@ except ImportError:
 
 # Performance hint mapping
 PERF_HINTS = {
-    0: "LATENCY",       # Optimize for low latency
-    1: "THROUGHPUT",    # Optimize for throughput
-    2: "LATENCY",       # Default to latency
-    3: "LATENCY",       # Max optimization = latency focused
+    0: "LATENCY",  # Optimize for low latency
+    1: "THROUGHPUT",  # Optimize for throughput
+    2: "LATENCY",  # Default to latency
+    3: "LATENCY",  # Max optimization = latency focused
 }
 
 
@@ -85,7 +86,7 @@ class OpenVINOModel(CompiledModel):
     def output_shapes(self) -> list[tuple]:
         return self._output_shapes
 
-    def __call__(self, *inputs: np.ndarray) -> Union[np.ndarray, tuple[np.ndarray, ...]]:
+    def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
         # Set inputs (must wrap in OVTensor)
         for i, data in enumerate(inputs):
@@ -155,7 +156,9 @@ class OpenVINOBackend(Backend):
             if dev == "CPU":
                 devices.append("cpu")
             elif dev.startswith("GPU"):
-                devices.append(f"intel-gpu:{dev.replace('GPU.', '')}" if "." in dev else "intel-gpu")
+                devices.append(
+                    f"intel-gpu:{dev.replace('GPU.', '')}" if "." in dev else "intel-gpu"
+                )
             elif dev == "NPU":
                 devices.append("npu")
 

@@ -1,9 +1,10 @@
 """Base classes for all backends."""
 
-from abc import ABC, abstractmethod
-from typing import Any, Union
-import numpy as np
 import time
+from abc import ABC, abstractmethod
+from typing import Any
+
+import numpy as np
 
 
 class CompiledModel(ABC):
@@ -45,7 +46,7 @@ class CompiledModel(ABC):
         return []
 
     @abstractmethod
-    def __call__(self, *inputs: np.ndarray) -> Union[np.ndarray, tuple[np.ndarray, ...]]:
+    def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference on input tensors.
 
         Args:
@@ -56,9 +57,7 @@ class CompiledModel(ABC):
         """
         ...
 
-    def run(
-        self, inputs: dict[str, np.ndarray]
-    ) -> dict[str, np.ndarray]:
+    def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Run inference with named inputs/outputs.
 
         Args:
@@ -74,7 +73,7 @@ class CompiledModel(ABC):
         if isinstance(outputs, np.ndarray):
             outputs = (outputs,)
 
-        return dict(zip(self.output_names, outputs))
+        return dict(zip(self.output_names, outputs, strict=False))
 
     def benchmark(
         self,

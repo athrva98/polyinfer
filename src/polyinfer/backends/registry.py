@@ -1,9 +1,9 @@
 """Backend registry for managing available inference backends."""
 
 from dataclasses import dataclass
-from typing import Type
-from polyinfer.backends.base import Backend
+
 from polyinfer._logging import get_logger
+from polyinfer.backends.base import Backend
 
 _logger = get_logger("backends.registry")
 
@@ -13,7 +13,7 @@ class BackendInfo:
     """Information about a registered backend."""
 
     name: str
-    backend_class: Type[Backend]
+    backend_class: type[Backend]
     instance: Backend | None = None
     available: bool | None = None  # Lazily computed
 
@@ -34,7 +34,7 @@ class BackendInfo:
 _backends: dict[str, BackendInfo] = {}
 
 
-def register_backend(name: str, backend_class: Type[Backend]) -> None:
+def register_backend(name: str, backend_class: type[Backend]) -> None:
     """Register a backend class.
 
     Args:
@@ -67,8 +67,7 @@ def get_backend(name: str) -> Backend:
     if not info.is_available():
         _logger.error(f"Backend '{name}' is not available")
         raise RuntimeError(
-            f"Backend '{name}' is not available. "
-            f"Install it with: pip install polyinfer[{name}]"
+            f"Backend '{name}' is not available. Install it with: pip install polyinfer[{name}]"
         )
 
     _logger.debug(f"Retrieved backend: {name}")
@@ -129,8 +128,7 @@ def get_best_backend(device: str) -> Backend:
     if not backends:
         available = list_backends()
         raise RuntimeError(
-            f"No backend available for device '{device}'. "
-            f"Available backends: {available}"
+            f"No backend available for device '{device}'. Available backends: {available}"
         )
     return backends[0]
 

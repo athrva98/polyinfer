@@ -1,11 +1,11 @@
 """Native TensorRT backend implementation."""
 
 from pathlib import Path
-from typing import Union
+
 import numpy as np
 
-from polyinfer.backends.base import Backend, CompiledModel
 from polyinfer._logging import get_logger
+from polyinfer.backends.base import Backend, CompiledModel
 
 _logger = get_logger("backends.tensorrt")
 
@@ -120,10 +120,7 @@ class TensorRTModel(CompiledModel):
 
         # Allocate input buffers
         for name in self._input_names:
-            if input_shapes:
-                shape = input_shapes[name]
-            else:
-                shape = self._bindings[name]["shape"]
+            shape = input_shapes[name] if input_shapes else self._bindings[name]["shape"]
 
             dtype = self._bindings[name]["dtype"]
             size = int(np.prod(shape)) * np.dtype(dtype).itemsize
@@ -168,18 +165,18 @@ class TensorRTModel(CompiledModel):
             self._h_outputs[name] = np.empty(shape, dtype=dtype)
             self._allocated_shapes[name] = shape
 
-    def __call__(self, *inputs: np.ndarray) -> Union[np.ndarray, tuple[np.ndarray, ...]]:
+    def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
         # For dynamic shapes, ensure buffers are allocated for current input shapes
         if self._has_dynamic_shapes:
             input_shapes = {
                 name: tuple(data.shape)
-                for name, data in zip(self._input_names, inputs)
+                for name, data in zip(self._input_names, inputs, strict=False)
             }
             self._allocate_buffers(input_shapes)
 
         # Copy inputs to GPU
-        for name, data in zip(self._input_names, inputs):
+        for name, data in zip(self._input_names, inputs, strict=False):
             data = np.ascontiguousarray(data)
             cudart.cudaMemcpyAsync(
                 self._d_inputs[name],
@@ -342,10 +339,7 @@ class TensorRTBackend(Backend):
         # Check for cached engine
         model_path = Path(model_path)
         cache_path = kwargs.get("cache_path")
-        if cache_path is None:
-            cache_path = model_path.with_suffix(".engine")
-        else:
-            cache_path = Path(cache_path)
+        cache_path = model_path.with_suffix(".engine") if cache_path is None else Path(cache_path)
 
         # Try to load cached engine (unless force_rebuild)
         if cache_path.exists() and not kwargs.get("force_rebuild", False):
@@ -402,15 +396,13 @@ class TensorRTBackend(Backend):
         if kwargs.get("int8", False):
             config.set_flag(trt.BuilderFlag.INT8)
             _logger.debug("INT8 precision enabled")
-        if kwargs.get("bf16", False):
-            if hasattr(trt.BuilderFlag, "BF16"):
-                config.set_flag(trt.BuilderFlag.BF16)
-        if kwargs.get("fp8", False):
-            if hasattr(trt.BuilderFlag, "FP8"):
-                config.set_flag(trt.BuilderFlag.FP8)
-        if not kwargs.get("tf32", True):  # TF32 enabled by default on Ampere+
-            if hasattr(trt.BuilderFlag, "TF32"):
-                config.clear_flag(trt.BuilderFlag.TF32)
+        if kwargs.get("bf16", False) and hasattr(trt.BuilderFlag, "BF16"):
+            config.set_flag(trt.BuilderFlag.BF16)
+        if kwargs.get("fp8", False) and hasattr(trt.BuilderFlag, "FP8"):
+            config.set_flag(trt.BuilderFlag.FP8)
+        if not kwargs.get("tf32", True) and hasattr(trt.BuilderFlag, "TF32"):
+            # TF32 enabled by default on Ampere+
+            config.clear_flag(trt.BuilderFlag.TF32)
         if kwargs.get("strict_types", False):
             if hasattr(trt.BuilderFlag, "STRICT_TYPES"):
                 config.set_flag(trt.BuilderFlag.STRICT_TYPES)
@@ -428,9 +420,8 @@ class TensorRTBackend(Backend):
             config.avg_timing_iterations = avg_timing
 
         # === Sparsity (Ampere+) ===
-        if kwargs.get("sparsity", False):
-            if hasattr(trt.BuilderFlag, "SPARSE_WEIGHTS"):
-                config.set_flag(trt.BuilderFlag.SPARSE_WEIGHTS)
+        if kwargs.get("sparsity", False) and hasattr(trt.BuilderFlag, "SPARSE_WEIGHTS"):
+            config.set_flag(trt.BuilderFlag.SPARSE_WEIGHTS)
 
         # === Timing cache ===
         timing_cache_path = kwargs.get("timing_cache_path")

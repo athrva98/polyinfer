@@ -2,13 +2,17 @@
 
 from dataclasses import dataclass
 
+from polyinfer.backends.base import Backend
 from polyinfer.backends.registry import (
-    list_backends as _list_backends,
     get_backend as _get_backend,
+)
+from polyinfer.backends.registry import (
     get_backends_for_device,
     get_best_backend,
 )
-from polyinfer.backends.base import Backend
+from polyinfer.backends.registry import (
+    list_backends as _list_backends,
+)
 
 
 @dataclass
@@ -191,10 +195,12 @@ def system_info() -> dict:
 
     # Device info
     for device in list_devices():
-        info["devices"].append({
-            "name": device.name,
-            "type": device.device_type,
-            "backends": device.backends,
-        })
+        info["devices"].append(
+            {
+                "name": device.name,
+                "type": device.device_type,
+                "backends": device.backends,
+            }
+        )
 
     return info

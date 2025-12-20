@@ -1,7 +1,7 @@
 """Configuration classes for PolyInfer."""
 
 from dataclasses import dataclass, field
-from typing import Literal, Any
+from typing import Any, Literal
 
 
 @dataclass

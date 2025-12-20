@@ -1,7 +1,7 @@
 """Tests for benchmarking functionality."""
 
 import pytest
-import numpy as np
+
 import polyinfer as pi
 
 
@@ -94,7 +94,7 @@ class TestBenchmarkConsistency:
         model = pi.load(model_path, device="cpu")
 
         # No warmup
-        result_no_warmup = model.benchmark(yolo_input, warmup=0, iterations=10)
+        model.benchmark(yolo_input, warmup=0, iterations=10)
 
         # With warmup
         result_warmup = model.benchmark(yolo_input, warmup=10, iterations=10)
@@ -115,12 +115,7 @@ class TestCompare:
 
     def test_compare_returns_results(self, model_path):
         """compare() should return benchmark results for each backend."""
-        results = pi.compare(
-            model_path,
-            input_shape=(1, 3, 640, 640),
-            warmup=2,
-            iterations=5
-        )
+        results = pi.compare(model_path, input_shape=(1, 3, 640, 640), warmup=2, iterations=5)
 
         for result in results:
             assert "backend" in result
@@ -132,11 +127,7 @@ class TestCompare:
     def test_compare_specific_device(self, model_path):
         """compare() should work with specific device."""
         results = pi.compare(
-            model_path,
-            input_shape=(1, 3, 640, 640),
-            device="cpu",
-            warmup=2,
-            iterations=5
+            model_path, input_shape=(1, 3, 640, 640), device="cpu", warmup=2, iterations=5
         )
 
         assert len(results) >= 1
@@ -222,7 +213,7 @@ class TestExtendedBenchmarks:
         result_long = model.benchmark(yolo_input, warmup=10, iterations=100)
 
         # Longer benchmark should generally have lower relative std
-        rel_std_short = result_short["std_ms"] / result_short["mean_ms"]
+        result_short["std_ms"] / result_short["mean_ms"]
         rel_std_long = result_long["std_ms"] / result_long["mean_ms"]
 
         # Not strictly enforced as it depends on system state
@@ -230,7 +221,7 @@ class TestExtendedBenchmarks:
 
     def test_all_available_backends(self, model_path, yolo_input):
         """Benchmark all available backends."""
-        backends = pi.list_backends()
+        pi.list_backends()
         devices = pi.list_devices()
 
         results = []
@@ -238,17 +229,21 @@ class TestExtendedBenchmarks:
             try:
                 model = pi.load(model_path, device=device.name)
                 result = model.benchmark(yolo_input, warmup=3, iterations=10)
-                results.append({
-                    "device": device.name,
-                    "backend": result["backend"],
-                    "fps": result["fps"],
-                    "mean_ms": result["mean_ms"],
-                })
+                results.append(
+                    {
+                        "device": device.name,
+                        "backend": result["backend"],
+                        "fps": result["fps"],
+                        "mean_ms": result["mean_ms"],
+                    }
+                )
             except Exception as e:
-                results.append({
-                    "device": device.name,
-                    "error": str(e),
-                })
+                results.append(
+                    {
+                        "device": device.name,
+                        "error": str(e),
+                    }
+                )
 
         # Should have at least one successful result
         successful = [r for r in results if "fps" in r]
@@ -258,6 +253,8 @@ class TestExtendedBenchmarks:
         print("\n=== Benchmark Results ===")
         for r in results:
             if "fps" in r:
-                print(f"{r['device']:20} {r['backend']:25} {r['mean_ms']:8.2f} ms  {r['fps']:8.1f} FPS")
+                print(
+                    f"{r['device']:20} {r['backend']:25} {r['mean_ms']:8.2f} ms  {r['fps']:8.1f} FPS"
+                )
             else:
                 print(f"{r['device']:20} ERROR: {r.get('error', 'unknown')}")

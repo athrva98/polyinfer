@@ -1,6 +1,7 @@
 """Tests for backend discovery and availability."""
 
 import pytest
+
 import polyinfer as pi
 from polyinfer.backends.registry import get_all_backends, get_backend
 
@@ -123,7 +124,7 @@ class TestBackendPriority:
     def test_backends_have_priority(self):
         """All backends should have a priority value."""
         all_backends = get_all_backends()
-        for name, backend in all_backends.items():
+        for _name, backend in all_backends.items():
             assert isinstance(backend.priority, int)
             assert backend.priority >= 0
 
