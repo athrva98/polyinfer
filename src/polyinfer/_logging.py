@@ -26,7 +26,6 @@ Usage:
 
 import logging
 import sys
-from typing import Union
 
 # Create the polyinfer logger hierarchy
 _logger = logging.getLogger("polyinfer")
@@ -35,7 +34,7 @@ _logger = logging.getLogger("polyinfer")
 _logger.setLevel(logging.WARNING)
 
 # Create console handler with formatting
-_handler = logging.StreamHandler(sys.stderr)
+_handler: logging.Handler = logging.StreamHandler(sys.stderr)
 _handler.setLevel(logging.DEBUG)  # Handler passes everything, logger filters
 
 # Format: [LEVEL] polyinfer.module: message
@@ -85,7 +84,7 @@ def get_logger(name: str = "") -> logging.Logger:
     return _logger
 
 
-def set_log_level(level: Union[str, int]) -> None:
+def set_log_level(level: str | int) -> None:
     """Set the global polyinfer log level.
 
     Args:
@@ -128,7 +127,7 @@ def get_log_level_name() -> str:
     return logging.getLevelName(level)
 
 
-def enable_logging(level: Union[str, int] = "INFO") -> None:
+def enable_logging(level: str | int = "INFO") -> None:
     """Enable logging with specified level.
 
     Convenience function to quickly enable verbose logging.
@@ -152,10 +151,10 @@ def disable_logging() -> None:
 
 
 def configure_logging(
-    level: Union[str, int] = "WARNING",
+    level: str | int = "WARNING",
     format: str = "[%(levelname)s] %(name)s: %(message)s",
     stream=None,
-    filename: str = None,
+    filename: str | None = None,
 ) -> None:
     """Configure polyinfer logging with custom settings.
 
@@ -205,7 +204,7 @@ class LogContext:
         >>> # Back to previous level
     """
 
-    def __init__(self, level: Union[str, int]):
+    def __init__(self, level: str | int):
         self.new_level = level
         self.old_level = None
 
@@ -238,7 +237,9 @@ def _log_backend_init(name: str, version: str, devices: list):
     logger.debug(f"  Supported devices: {devices}")
 
 
-def _log_inference(backend: str, input_shapes: list, output_shapes: list, time_ms: float = None):
+def _log_inference(
+    backend: str, input_shapes: list, output_shapes: list, time_ms: float | None = None
+):
     """Log inference operation."""
     logger = get_logger("inference")
     if time_ms is not None:

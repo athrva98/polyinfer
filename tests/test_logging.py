@@ -27,14 +27,13 @@ class TestLoggingImports:
     def test_logging_module_import(self):
         """Test direct import from logging module."""
         from polyinfer._logging import (
-            get_logger,
-            set_log_level,
+            configure_logging,
+            disable_logging,
+            enable_logging,
             get_log_level,
             get_log_level_name,
-            enable_logging,
-            disable_logging,
-            configure_logging,
-            LogContext,
+            get_logger,
+            set_log_level,
         )
 
         # All should be callable
@@ -237,7 +236,7 @@ class TestGetLogger:
         """Test that child loggers inherit from parent."""
         import polyinfer as pi
 
-        parent = pi.get_logger()
+        pi.get_logger()
         child = pi.get_logger("model")
 
         # Child's effective level should match parent

@@ -1,7 +1,8 @@
 """Tests for device-specific functionality."""
 
-import pytest
 import numpy as np
+import pytest
+
 import polyinfer as pi
 
 

@@ -4,15 +4,17 @@ This test suite validates that YOLOv8n runs correctly on every available
 backend and device combination, checking both correctness and performance.
 """
 
-import pytest
-import numpy as np
-import polyinfer as pi
 from pathlib import Path
 
+import numpy as np
+import pytest
+
+import polyinfer as pi
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture(scope="module")
 def yolov8_path():
@@ -30,6 +32,7 @@ def yolov8_path():
     # Try to export
     try:
         from ultralytics import YOLO
+
         model = YOLO("yolov8n.pt")
         export_path = Path(__file__).parent.parent / "yolov8n.onnx"
         model.export(format="onnx")
@@ -58,6 +61,7 @@ def reference_output(yolov8_path, yolo_input):
 # Device Discovery
 # =============================================================================
 
+
 def get_all_device_backend_combinations():
     """Get all valid (device, backend) combinations."""
     combinations = []
@@ -72,6 +76,7 @@ def get_all_device_backend_combinations():
 # =============================================================================
 # YOLOv8 Tests by Backend
 # =============================================================================
+
 
 class TestYOLOv8ONNXRuntime:
     """YOLOv8 tests for ONNX Runtime backend."""
@@ -205,7 +210,7 @@ class TestYOLOv8IREE:
         total_elements = 1 * 84 * 8400
         nan_count = np.sum(np.isnan(output))
         nan_ratio = nan_count / total_elements
-        assert nan_ratio <= 0.001, f"Too many NaN values: {nan_count} ({nan_ratio*100:.2f}%)"
+        assert nan_ratio <= 0.001, f"Too many NaN values: {nan_count} ({nan_ratio * 100:.2f}%)"
 
         assert not np.any(np.isinf(output)), "Output contains Inf"
 
@@ -242,6 +247,7 @@ class TestYOLOv8IREE:
 # Performance Benchmarks
 # =============================================================================
 
+
 class TestYOLOv8Benchmarks:
     """Benchmark YOLOv8 across all backends."""
 
@@ -256,21 +262,25 @@ class TestYOLOv8Benchmarks:
                 try:
                     model = pi.load(yolov8_path, backend=backend_name, device=device)
                     bench = model.benchmark(yolo_input, warmup=5, iterations=20)
-                    results.append({
-                        "device": device,
-                        "backend": backend_name,
-                        "backend_name": model.backend_name,
-                        "mean_ms": bench["mean_ms"],
-                        "fps": bench["fps"],
-                        "status": "success",
-                    })
+                    results.append(
+                        {
+                            "device": device,
+                            "backend": backend_name,
+                            "backend_name": model.backend_name,
+                            "mean_ms": bench["mean_ms"],
+                            "fps": bench["fps"],
+                            "status": "success",
+                        }
+                    )
                 except Exception as e:
-                    results.append({
-                        "device": device,
-                        "backend": backend_name,
-                        "error": str(e),
-                        "status": "error",
-                    })
+                    results.append(
+                        {
+                            "device": device,
+                            "backend": backend_name,
+                            "error": str(e),
+                            "status": "error",
+                        }
+                    )
 
         # Print results
         print("\n" + "=" * 80)
@@ -283,7 +293,9 @@ class TestYOLOv8Benchmarks:
         successful.sort(key=lambda r: r["mean_ms"])
 
         for r in successful:
-            print(f"{r['device']:<15} {r['backend_name']:<25} {r['mean_ms']:>10.2f}ms {r['fps']:>9.1f}")
+            print(
+                f"{r['device']:<15} {r['backend_name']:<25} {r['mean_ms']:>10.2f}ms {r['fps']:>9.1f}"
+            )
 
         print("-" * 80)
 
@@ -304,6 +316,7 @@ class TestYOLOv8Benchmarks:
             pytest.skip("OpenVINO not available")
 
         from polyinfer.backends.openvino import OpenVINOBackend
+
         ov_backend = OpenVINOBackend()
         raw_devices = ov_backend.get_available_devices()
 
@@ -322,13 +335,17 @@ class TestYOLOv8Benchmarks:
             try:
                 model = pi.load(yolov8_path, backend="openvino", device=pi_device)
                 bench = model.benchmark(yolo_input, warmup=5, iterations=20)
-                results.append({
-                    "raw_device": raw_device,
-                    "pi_device": pi_device,
-                    "mean_ms": bench["mean_ms"],
-                    "fps": bench["fps"],
-                })
-                print(f"  {raw_device} ({pi_device}): {bench['mean_ms']:.2f}ms ({bench['fps']:.1f} FPS)")
+                results.append(
+                    {
+                        "raw_device": raw_device,
+                        "pi_device": pi_device,
+                        "mean_ms": bench["mean_ms"],
+                        "fps": bench["fps"],
+                    }
+                )
+                print(
+                    f"  {raw_device} ({pi_device}): {bench['mean_ms']:.2f}ms ({bench['fps']:.1f} FPS)"
+                )
             except Exception as e:
                 print(f"  {raw_device} ({pi_device}): ERROR - {e}")
 
@@ -348,11 +365,13 @@ class TestYOLOv8Benchmarks:
             try:
                 model = pi.load(yolov8_path, backend="iree", device=device)
                 bench = model.benchmark(yolo_input, warmup=5, iterations=20)
-                results.append({
-                    "device": device,
-                    "mean_ms": bench["mean_ms"],
-                    "fps": bench["fps"],
-                })
+                results.append(
+                    {
+                        "device": device,
+                        "mean_ms": bench["mean_ms"],
+                        "fps": bench["fps"],
+                    }
+                )
                 print(f"  {device}: {bench['mean_ms']:.2f}ms ({bench['fps']:.1f} FPS)")
             except Exception as e:
                 print(f"  {device}: ERROR - {e}")
@@ -364,6 +383,7 @@ class TestYOLOv8Benchmarks:
 # Cross-Backend Consistency
 # =============================================================================
 
+
 class TestYOLOv8Consistency:
     """Test output consistency across backends."""
 
@@ -374,11 +394,7 @@ class TestYOLOv8Consistency:
         for device_info in pi.list_devices():
             for backend_name in device_info.backends:
                 try:
-                    model = pi.load(
-                        yolov8_path,
-                        backend=backend_name,
-                        device=device_info.name
-                    )
+                    model = pi.load(yolov8_path, backend=backend_name, device=device_info.name)
                     output = model(yolo_input)
                     key = f"{backend_name}-{device_info.name}"
                     shapes[key] = output.shape
@@ -447,7 +463,7 @@ class TestYOLOv8Consistency:
         total_elements = output_vulkan.size
         nan_count = np.sum(np.isnan(output_vulkan))
         nan_ratio = nan_count / total_elements
-        assert nan_ratio <= 0.001, f"Too many NaN values: {nan_count} ({nan_ratio*100:.2f}%)"
+        assert nan_ratio <= 0.001, f"Too many NaN values: {nan_count} ({nan_ratio * 100:.2f}%)"
 
         # Compare non-NaN values using correlation
         valid_mask = ~np.isnan(output_vulkan)
@@ -460,6 +476,7 @@ class TestYOLOv8Consistency:
 # =============================================================================
 # Stress Tests
 # =============================================================================
+
 
 class TestYOLOv8Stress:
     """Stress tests for YOLOv8."""
@@ -500,7 +517,7 @@ class TestYOLOv8Stress:
             nan_count = np.sum(np.isnan(output))
             nan_ratio = nan_count / total_elements
             assert nan_ratio <= max_nan_ratio, (
-                f"Run {i} has too many NaN values: {nan_count} ({nan_ratio*100:.2f}%)"
+                f"Run {i} has too many NaN values: {nan_count} ({nan_ratio * 100:.2f}%)"
             )
 
             assert not np.any(np.isinf(output)), f"Run {i} contains Inf"
@@ -570,8 +587,12 @@ if __name__ == "__main__":
             try:
                 model = pi.load(model_path, backend=backend, device=device_info.name)
                 bench = model.benchmark(input_data, warmup=5, iterations=20)
-                print(f"{device_info.name:15} {model.backend_name:25} {bench['mean_ms']:8.2f}ms {bench['fps']:8.1f} FPS")
-                results.append((device_info.name, model.backend_name, bench['mean_ms'], bench['fps']))
+                print(
+                    f"{device_info.name:15} {model.backend_name:25} {bench['mean_ms']:8.2f}ms {bench['fps']:8.1f} FPS"
+                )
+                results.append(
+                    (device_info.name, model.backend_name, bench["mean_ms"], bench["fps"])
+                )
             except Exception as e:
                 print(f"{device_info.name:15} {backend:25} ERROR: {str(e)[:40]}")
 
@@ -580,5 +601,5 @@ if __name__ == "__main__":
     print("Summary (sorted by speed)")
     print("=" * 60)
     results.sort(key=lambda x: x[2])
-    for device, backend, ms, fps in results:
+    for _device, backend, ms, fps in results:
         print(f"{backend:30} {ms:8.2f}ms {fps:8.1f} FPS")

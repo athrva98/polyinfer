@@ -1,11 +1,12 @@
 """Benchmarking and comparison utilities for PolyInfer."""
 
+import time
 from pathlib import Path
 from typing import Any
-import numpy as np
-import time
 
-from polyinfer.discovery import list_backends, get_backend
+import numpy as np
+
+from polyinfer.discovery import get_backend, list_backends
 
 
 def benchmark(
@@ -43,14 +44,14 @@ def benchmark(
             model(*inputs)
 
         # Benchmark
-        times = []
+        times_list: list[float] = []
         for _ in range(iterations):
             start = time.perf_counter()
             model(*inputs)
             elapsed = (time.perf_counter() - start) * 1000
-            times.append(elapsed)
+            times_list.append(elapsed)
 
-        times = np.array(times)
+        times = np.array(times_list)
         return {
             "backend": backend,
             "device": device,
@@ -113,6 +114,7 @@ def compare(
         if input_shape is None:
             # Try to get shape from model
             import onnx
+
             model = onnx.load(str(model_path))
             input_info = model.graph.input[0]
             shape = []
@@ -181,7 +183,7 @@ def compare(
         fastest = successful[0]["mean_ms"]
         for r in successful:
             marker = " <-- FASTEST" if r["mean_ms"] == fastest else ""
-            slowdown = f" ({r['mean_ms']/fastest:.2f}x)" if r["mean_ms"] != fastest else ""
+            slowdown = f" ({r['mean_ms'] / fastest:.2f}x)" if r["mean_ms"] != fastest else ""
             print(
                 f"{r['backend']:25s}: {r['mean_ms']:6.2f} ms ({r['fps']:5.1f} FPS){slowdown}{marker}"
             )
@@ -213,9 +215,9 @@ def compare_all_devices(
 
     for device_info in list_devices():
         device = device_info.name
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Device: {device}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         device_results = []
         for backend_name in device_info.backends:

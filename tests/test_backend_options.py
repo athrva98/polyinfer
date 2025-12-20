@@ -4,25 +4,22 @@ Tests that backend options (TensorRT, ONNX Runtime, OpenVINO, IREE)
 are properly validated and passed through to the underlying engines.
 """
 
-import pytest
 import numpy as np
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+import pytest
 
 import polyinfer as pi
-from polyinfer.backends.registry import get_backend
-
 
 # =============================================================================
 # Test Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def dummy_onnx_model(tmp_path):
     """Create a minimal ONNX model for testing."""
     try:
         import onnx
-        from onnx import helper, TensorProto
+        from onnx import TensorProto, helper
     except ImportError:
         pytest.skip("onnx not installed")
 
@@ -43,7 +40,8 @@ def dummy_onnx_model(tmp_path):
         [const_tensor],
     )
 
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    model.ir_version = 8  # Use IR version 8 for broader compatibility
     model_path = tmp_path / "test_model.onnx"
     onnx.save(model, str(model_path))
 
@@ -59,6 +57,7 @@ def dummy_input():
 # =============================================================================
 # ONNX Runtime Backend Options Tests
 # =============================================================================
+
 
 class TestONNXRuntimeOptions:
     """Test ONNX Runtime backend options passthrough."""
@@ -210,6 +209,7 @@ class TestONNXRuntimeOptions:
 # Native TensorRT Backend Options Tests
 # =============================================================================
 
+
 class TestNativeTensorRTOptions:
     """Test native TensorRT backend options."""
 
@@ -300,7 +300,7 @@ class TestNativeTensorRTOptions:
         cache_path = tmp_path / "test_rebuild.engine"
 
         # First build
-        model1 = pi.load(
+        pi.load(
             dummy_onnx_model,
             backend="tensorrt",
             device="cuda",
@@ -309,7 +309,7 @@ class TestNativeTensorRTOptions:
         mtime1 = cache_path.stat().st_mtime
 
         # Should use cache (no rebuild)
-        model2 = pi.load(
+        pi.load(
             dummy_onnx_model,
             backend="tensorrt",
             device="cuda",
@@ -319,7 +319,7 @@ class TestNativeTensorRTOptions:
         assert mtime1 == mtime2, "Cache should be reused"
 
         # Force rebuild
-        model3 = pi.load(
+        pi.load(
             dummy_onnx_model,
             backend="tensorrt",
             device="cuda",
@@ -352,6 +352,7 @@ class TestNativeTensorRTOptions:
 # =============================================================================
 # OpenVINO Backend Options Tests
 # =============================================================================
+
 
 class TestOpenVINOOptions:
     """Test OpenVINO backend options."""
@@ -409,6 +410,7 @@ class TestOpenVINOOptions:
 # =============================================================================
 # IREE Backend Options Tests
 # =============================================================================
+
 
 class TestIREEOptions:
     """Test IREE backend options."""
@@ -491,6 +493,7 @@ class TestIREEOptions:
 # Options Validation Tests
 # =============================================================================
 
+
 class TestOptionsValidation:
     """Test that invalid options are handled properly."""
 
@@ -522,6 +525,7 @@ class TestOptionsValidation:
 # =============================================================================
 # Integration Tests
 # =============================================================================
+
 
 class TestOptionsIntegration:
     """Integration tests for options across backends."""

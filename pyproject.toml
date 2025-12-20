@@ -151,6 +151,8 @@ dev = [
     "pytest-benchmark>=4.0",
     "ruff>=0.1",
     "mypy>=1.0",
+    # Include onnxruntime so basic tests can run
+    "onnxruntime>=1.17",
 ]
 
 [project.urls]

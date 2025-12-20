@@ -1,9 +1,10 @@
 """Base classes for all backends."""
 
-from abc import ABC, abstractmethod
-from typing import Any, Union
-import numpy as np
 import time
+from abc import ABC, abstractmethod
+from typing import Any
+
+import numpy as np
 
 
 class CompiledModel(ABC):
@@ -45,7 +46,7 @@ class CompiledModel(ABC):
         return []
 
     @abstractmethod
-    def __call__(self, *inputs: np.ndarray) -> Union[np.ndarray, tuple[np.ndarray, ...]]:
+    def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference on input tensors.
 
         Args:
@@ -56,9 +57,7 @@ class CompiledModel(ABC):
         """
         ...
 
-    def run(
-        self, inputs: dict[str, np.ndarray]
-    ) -> dict[str, np.ndarray]:
+    def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Run inference with named inputs/outputs.
 
         Args:
@@ -74,7 +73,7 @@ class CompiledModel(ABC):
         if isinstance(outputs, np.ndarray):
             outputs = (outputs,)
 
-        return dict(zip(self.output_names, outputs))
+        return dict(zip(self.output_names, outputs, strict=False))
 
     def benchmark(
         self,
@@ -97,14 +96,14 @@ class CompiledModel(ABC):
             self(*inputs)
 
         # Benchmark
-        times = []
+        times_list: list[float] = []
         for _ in range(iterations):
             start = time.perf_counter()
             self(*inputs)
             elapsed = (time.perf_counter() - start) * 1000  # ms
-            times.append(elapsed)
+            times_list.append(elapsed)
 
-        times = np.array(times)
+        times = np.array(times_list)
         return {
             "backend": self.backend_name,
             "device": self.device,

@@ -1,82 +1,147 @@
-"""Test polyinfer with Intel devices (CPU, iGPU, NPU)."""
+"""Test polyinfer with Intel devices (CPU, iGPU, NPU).
+
+These tests require Intel hardware and OpenVINO to be properly configured.
+They are marked with intel_gpu or npu markers and will be skipped in CI.
+"""
+
+import os
 import sys
-sys.path.insert(0, "src")
 
 import numpy as np
+import pytest
+
+sys.path.insert(0, "src")
+
 import polyinfer as pi
 
-# Check what's available
-print("=" * 60)
-print("PolyInfer: Intel Device Test")
-print("=" * 60)
+# Check if OpenVINO is available
+try:
+    from polyinfer.backends.openvino import OpenVINOBackend
 
-print("\nAvailable backends:", pi.list_backends())
-print("Available devices:", pi.list_devices())
+    OPENVINO_AVAILABLE = True
+    ov_backend = OpenVINOBackend()
+    AVAILABLE_DEVICES = ov_backend.get_available_devices()
+except ImportError:
+    OPENVINO_AVAILABLE = False
+    AVAILABLE_DEVICES = []
 
-# Get OpenVINO backend directly to see raw device names
-from polyinfer.backends.openvino import OpenVINOBackend
-ov_backend = OpenVINOBackend()
-print("\nOpenVINO raw devices:", ov_backend.get_available_devices())
 
-# Test model path, use YOLOv8n if available
-import os
-model_path = None
-for path in ["yolov8n.onnx", "examples/yolov8n.onnx", "../yolov8n.onnx"]:
-    if os.path.exists(path):
-        model_path = path
-        break
+def _get_test_model():
+    """Get a test model path, or None if not available."""
+    for path in ["yolov8n.onnx", "examples/yolov8n.onnx", "../yolov8n.onnx", "tests/yolov8n.onnx"]:
+        if os.path.exists(path):
+            return path
+    return None
 
-if model_path is None:
-    print("\nNo test model found. Downloading yolov8n.onnx...")
-    try:
-        from ultralytics import YOLO
-        model = YOLO("yolov8n.pt")
-        model.export(format="onnx")
-        model_path = "yolov8n.onnx"
-    except ImportError:
-        print("Please provide a model: pip install ultralytics && yolo export model=yolov8n.pt format=onnx")
-        sys.exit(1)
 
-print(f"\nUsing model: {model_path}")
-
-# Create test input (YOLOv8n expects 1x3x640x640)
-input_data = np.random.rand(1, 3, 640, 640).astype(np.float32)
-
-# Test each device
-devices_to_test = [
-    ("cpu", "CPU (Intel Core Ultra 9)"),
-    ("intel-gpu", "Intel iGPU"),
-    ("intel-gpu:0", "Intel iGPU (explicit)"),
-    ("npu", "Intel NPU (AI Boost)"),
+# Skip all tests if no model available or OpenVINO not installed
+pytestmark = [
+    pytest.mark.skipif(not OPENVINO_AVAILABLE, reason="OpenVINO not available"),
 ]
 
-print("\n" + "=" * 60)
-print("Running benchmarks...")
-print("=" * 60)
 
-results = []
-for device, description in devices_to_test:
-    try:
-        print(f"\n[{device}] {description}")
-        model = pi.load(model_path, backend="openvino", device=device)
-        print(f"  Backend: {model.backend_name}")
+@pytest.fixture
+def test_model():
+    """Fixture providing a test model path."""
+    model_path = _get_test_model()
+    if model_path is None:
+        pytest.skip("No test model available (yolov8n.onnx)")
+    return model_path
 
-        # Benchmark
-        bench = model.benchmark(input_data, warmup=5, iterations=20)
-        print(f"  Latency: {bench['mean_ms']:.2f} ms ({bench['fps']:.1f} FPS)")
-        results.append((device, description, bench['mean_ms'], bench['fps']))
-    except Exception as e:
-        print(f"  ERROR: {e}")
-        results.append((device, description, None, None))
 
-# Summary
-print("\n" + "=" * 60)
-print("Summary")
-print("=" * 60)
-print(f"{'Device':<20} {'Description':<30} {'Latency':>10} {'FPS':>10}")
-print("-" * 70)
-for device, desc, latency, fps in results:
-    if latency:
-        print(f"{device:<20} {desc:<30} {latency:>8.2f}ms {fps:>9.1f}")
+@pytest.fixture
+def test_input():
+    """Fixture providing test input data for YOLOv8n (1x3x640x640)."""
+    return np.random.rand(1, 3, 640, 640).astype(np.float32)
+
+
+class TestIntelCPU:
+    """Tests for Intel CPU inference."""
+
+    def test_cpu_inference(self, test_model, test_input):
+        """Test inference on CPU."""
+        model = pi.load(test_model, backend="openvino", device="cpu")
+        assert model.backend_name == "openvino"
+        output = model(test_input)
+        assert output is not None
+
+    def test_cpu_benchmark(self, test_model, test_input):
+        """Test benchmarking on CPU."""
+        model = pi.load(test_model, backend="openvino", device="cpu")
+        bench = model.benchmark(test_input, warmup=2, iterations=5)
+        assert "mean_ms" in bench
+        assert "fps" in bench
+        assert bench["mean_ms"] > 0
+
+
+@pytest.mark.intel_gpu
+class TestIntelGPU:
+    """Tests for Intel iGPU inference."""
+
+    @pytest.fixture(autouse=True)
+    def check_gpu_available(self):
+        """Skip if Intel GPU not available."""
+        if "GPU" not in AVAILABLE_DEVICES and "GPU.0" not in AVAILABLE_DEVICES:
+            pytest.skip("Intel GPU not available")
+
+    def test_igpu_inference(self, test_model, test_input):
+        """Test inference on Intel iGPU."""
+        model = pi.load(test_model, backend="openvino", device="intel-gpu")
+        assert model.backend_name == "openvino"
+        output = model(test_input)
+        assert output is not None
+
+    def test_igpu_benchmark(self, test_model, test_input):
+        """Test benchmarking on Intel iGPU."""
+        model = pi.load(test_model, backend="openvino", device="intel-gpu")
+        bench = model.benchmark(test_input, warmup=2, iterations=5)
+        assert "mean_ms" in bench
+        assert "fps" in bench
+        assert bench["mean_ms"] > 0
+
+
+@pytest.mark.npu
+class TestIntelNPU:
+    """Tests for Intel NPU (AI Boost) inference."""
+
+    @pytest.fixture(autouse=True)
+    def check_npu_available(self):
+        """Skip if Intel NPU not available."""
+        if "NPU" not in AVAILABLE_DEVICES:
+            pytest.skip("Intel NPU not available")
+
+    def test_npu_inference(self, test_model, test_input):
+        """Test inference on Intel NPU."""
+        model = pi.load(test_model, backend="openvino", device="npu")
+        assert model.backend_name == "openvino"
+        output = model(test_input)
+        assert output is not None
+
+    def test_npu_benchmark(self, test_model, test_input):
+        """Test benchmarking on Intel NPU."""
+        model = pi.load(test_model, backend="openvino", device="npu")
+        bench = model.benchmark(test_input, warmup=2, iterations=5)
+        assert "mean_ms" in bench
+        assert "fps" in bench
+        assert bench["mean_ms"] > 0
+
+
+if __name__ == "__main__":
+    # When run as a script, print device info
+    print("=" * 60)
+    print("PolyInfer: Intel Device Test")
+    print("=" * 60)
+
+    print("\nAvailable backends:", pi.list_backends())
+    print("Available devices:", pi.list_devices())
+
+    if OPENVINO_AVAILABLE:
+        print("\nOpenVINO raw devices:", AVAILABLE_DEVICES)
     else:
-        print(f"{device:<20} {desc:<30} {'FAILED':>10} {'-':>10}")
+        print("\nOpenVINO not available")
+
+    model_path = _get_test_model()
+    if model_path:
+        print(f"\nTest model found: {model_path}")
+    else:
+        print("\nNo test model found. Please provide yolov8n.onnx")

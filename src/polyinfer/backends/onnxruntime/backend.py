@@ -1,10 +1,9 @@
 """ONNX Runtime backend implementation."""
 
-from typing import Union
 import numpy as np
 
-from polyinfer.backends.base import Backend, CompiledModel
 from polyinfer._logging import get_logger
+from polyinfer.backends.base import Backend, CompiledModel
 
 _logger = get_logger("backends.onnxruntime")
 
@@ -79,22 +78,23 @@ class ONNXRuntimeModel(CompiledModel):
         """Return the active execution provider."""
         return self._provider
 
-    def __call__(self, *inputs: np.ndarray) -> Union[np.ndarray, tuple[np.ndarray, ...]]:
+    def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
         # Build input dict
-        input_dict = {name: arr for name, arr in zip(self._input_names, inputs)}
+        input_dict = {name: arr for name, arr in zip(self._input_names, inputs, strict=False)}
 
         # Run inference
         outputs = self._session.run(None, input_dict)
 
         if len(outputs) == 1:
-            return outputs[0]
+            result: np.ndarray = outputs[0]
+            return result
         return tuple(outputs)
 
     def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Run inference with named inputs/outputs."""
         outputs = self._session.run(None, inputs)
-        return dict(zip(self._output_names, outputs))
+        return dict(zip(self._output_names, outputs, strict=False))
 
 
 def _verify_tensorrt_ep_works() -> bool:
@@ -112,6 +112,7 @@ def _verify_tensorrt_ep_works() -> bool:
     if sys.platform == "win32":
         # On Windows, check if nvinfer DLLs are findable
         import ctypes
+
         try:
             ctypes.CDLL("nvinfer_10.dll")
             return True
@@ -130,7 +131,7 @@ def _verify_tensorrt_ep_works() -> bool:
         # First check if already loaded (from our preload)
         try:
             # Try to find the symbol in already-loaded libraries
-            ctypes.CDLL(None).nvinfer_version
+            _ = ctypes.CDLL(None).nvinfer_version
             return True
         except (OSError, AttributeError):
             pass
@@ -188,7 +189,7 @@ class ONNXRuntimeBackend(Backend):
     @property
     def version(self) -> str:
         if ONNXRUNTIME_AVAILABLE:
-            return ort.__version__
+            return str(ort.__version__)
         return "not installed"
 
     @property
@@ -203,7 +204,7 @@ class ONNXRuntimeBackend(Backend):
         """Get list of available execution providers."""
         if not ONNXRUNTIME_AVAILABLE:
             return []
-        return ort.get_available_providers()
+        return list(ort.get_available_providers())
 
     def load(
         self,
@@ -276,6 +277,7 @@ class ONNXRuntimeBackend(Backend):
         if device_type == "tensorrt":
             _logger.debug("Setting up TensorRT paths for TensorRT EP")
             from polyinfer.nvidia_setup import setup_tensorrt_paths
+
             setup_tensorrt_paths()
 
         # Get providers for device
@@ -312,7 +314,9 @@ class ONNXRuntimeBackend(Backend):
                     if "cudnn_conv_algo_search" in kwargs:
                         opts["cudnn_conv_algo_search"] = kwargs["cudnn_conv_algo_search"]
                     if "do_copy_in_default_stream" in kwargs:
-                        opts["do_copy_in_default_stream"] = str(int(kwargs["do_copy_in_default_stream"]))
+                        opts["do_copy_in_default_stream"] = str(
+                            int(kwargs["do_copy_in_default_stream"])
+                        )
 
                 elif provider == "TensorrtExecutionProvider":
                     opts["device_id"] = str(device_id)
@@ -324,7 +328,9 @@ class ONNXRuntimeBackend(Backend):
                     opts["trt_engine_cache_path"] = kwargs.get("cache_dir", "./trt_cache")
                     # Optimization
                     if "builder_optimization_level" in kwargs:
-                        opts["trt_builder_optimization_level"] = str(kwargs["builder_optimization_level"])
+                        opts["trt_builder_optimization_level"] = str(
+                            kwargs["builder_optimization_level"]
+                        )
                     if "timing_cache_path" in kwargs:
                         opts["trt_timing_cache_path"] = kwargs["timing_cache_path"]
                         opts["trt_timing_cache_enable"] = "True"
@@ -336,7 +342,9 @@ class ONNXRuntimeBackend(Backend):
                     if "min_subgraph_size" in kwargs:
                         opts["trt_min_subgraph_size"] = str(kwargs["min_subgraph_size"])
                     if "max_partition_iterations" in kwargs:
-                        opts["trt_max_partition_iterations"] = str(kwargs["max_partition_iterations"])
+                        opts["trt_max_partition_iterations"] = str(
+                            kwargs["max_partition_iterations"]
+                        )
                     # DLA
                     if kwargs.get("dla_enable", False):
                         opts["trt_dla_enable"] = "True"
@@ -345,10 +353,7 @@ class ONNXRuntimeBackend(Backend):
                     if kwargs.get("force_sequential_engine_build", False):
                         opts["trt_force_sequential_engine_build"] = "True"
 
-                elif provider == "DmlExecutionProvider":
-                    opts["device_id"] = str(device_id)
-
-                elif provider == "ROCMExecutionProvider":
+                elif provider == "DmlExecutionProvider" or provider == "ROCMExecutionProvider":
                     opts["device_id"] = str(device_id)
 
                 provider_options.append(opts)
@@ -398,14 +403,22 @@ class ONNXRuntimeBackend(Backend):
                 if "TensorrtExecutionProvider" in providers:
                     # Try falling back to CUDA EP
                     fallback_providers = [p for p in providers if p != "TensorrtExecutionProvider"]
-                    fallback_options = [
-                        opt for i, opt in enumerate(provider_options)
-                        if providers[i] != "TensorrtExecutionProvider"
-                    ] if provider_options else None
+                    fallback_options = (
+                        [
+                            opt
+                            for i, opt in enumerate(provider_options)
+                            if providers[i] != "TensorrtExecutionProvider"
+                        ]
+                        if provider_options
+                        else None
+                    )
 
                     if fallback_providers:
-                        _logger.warning(f"TensorRT EP failed, falling back to {fallback_providers[0]}")
+                        _logger.warning(
+                            f"TensorRT EP failed, falling back to {fallback_providers[0]}"
+                        )
                         import warnings
+
                         warnings.warn(
                             f"TensorRT EP failed ({error_msg[:100]}...), "
                             f"falling back to {fallback_providers[0]}",

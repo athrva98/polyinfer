@@ -6,11 +6,11 @@ installed via pip packages, eliminating the need for manual PATH configuration.
 The setup happens automatically when polyinfer is imported.
 """
 
+import logging
 import os
 import sys
 import warnings
 from pathlib import Path
-import logging
 
 # Create logger directly since _logging may not be imported yet
 _logger = logging.getLogger("polyinfer.nvidia_setup")
@@ -76,10 +76,9 @@ def _find_nvidia_dll_dirs() -> list[Path]:
     nvidia_root = site_packages / "nvidia"
     if nvidia_root.exists():
         for subdir in nvidia_root.rglob("bin"):
-            if subdir.is_dir() and subdir not in dll_dirs:
-                # Check if it contains DLLs
-                if any(subdir.glob("*.dll")):
-                    dll_dirs.append(subdir)
+            # Check if it's a directory not already added that contains DLLs
+            if subdir.is_dir() and subdir not in dll_dirs and any(subdir.glob("*.dll")):
+                dll_dirs.append(subdir)
 
     # TensorRT root
     tensorrt_root = site_packages / "tensorrt_libs"
@@ -194,9 +193,8 @@ def _find_tensorrt_lib_dirs() -> list[Path]:
 
         for sys_path in system_tensorrt_paths:
             p = Path(sys_path)
-            if p.exists() and p not in tensorrt_dirs:
-                if any(p.glob("libnvinfer.so*")):
-                    tensorrt_dirs.append(p)
+            if p.exists() and p not in tensorrt_dirs and any(p.glob("libnvinfer.so*")):
+                tensorrt_dirs.append(p)
 
     return tensorrt_dirs
 
@@ -380,6 +378,7 @@ def _check_onnxruntime_conflicts():
     if len(installed) > 1 and sys.platform == "win32":
         try:
             import onnxruntime as ort
+
             providers = ort.get_available_providers()
 
             has_cuda = "CUDAExecutionProvider" in providers
@@ -440,7 +439,7 @@ def get_nvidia_info() -> dict:
         Dictionary with information about found NVIDIA packages and libraries.
     """
     site_packages = _get_site_packages()
-    info = {
+    info: dict = {
         "site_packages": str(site_packages),
         "library_directories": [],
         "libraries": {},
@@ -503,17 +502,17 @@ def fix_onnxruntime_conflict(prefer: str = "cuda") -> bool:
     import subprocess
 
     try:
-        import importlib.metadata as metadata
+        import importlib.metadata as pkg_metadata
     except ImportError:
-        import importlib_metadata as metadata
+        import importlib_metadata as pkg_metadata  # type: ignore
 
     # Check which variants are installed
-    installed = []
+    installed: list[str] = []
     for pkg in ["onnxruntime", "onnxruntime-gpu", "onnxruntime-directml"]:
         try:
-            metadata.version(pkg)
+            pkg_metadata.version(pkg)
             installed.append(pkg)
-        except metadata.PackageNotFoundError:
+        except pkg_metadata.PackageNotFoundError:
             pass
 
     if len(installed) <= 1:

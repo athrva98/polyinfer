@@ -1,15 +1,23 @@
 """Tests for MLIR emission and compilation."""
 
-import pytest
-import numpy as np
-import polyinfer as pi
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
+import numpy as np
+import pytest
+
+import polyinfer as pi
+
+# Check if IREE is available
+IREE_AVAILABLE = pi.is_available("iree")
+
+# Skip all tests in this module if IREE is not available
+pytestmark = pytest.mark.skipif(not IREE_AVAILABLE, reason="IREE backend not available")
 
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture(scope="module")
 def model_path():
@@ -40,6 +48,7 @@ def temp_dir():
 # MLIR Export Tests
 # =============================================================================
 
+
 class TestMLIRExport:
     """Tests for export_mlir functionality."""
 
@@ -57,6 +66,7 @@ class TestMLIRExport:
         """Test MLIR export with default output path."""
         # Copy model to temp dir to test default path behavior
         import shutil
+
         temp_model = temp_dir / "test_model.onnx"
         shutil.copy(model_path, temp_model)
 
@@ -125,6 +135,7 @@ class TestMLIRExport:
 # MLIR Compilation Tests
 # =============================================================================
 
+
 class TestMLIRCompilation:
     """Tests for compile_mlir functionality."""
 
@@ -137,7 +148,9 @@ class TestMLIRCompilation:
 
     def test_compile_mlir_cpu(self, mlir_file, temp_dir):
         """Test MLIR compilation for CPU."""
-        vmfb_path = pi.compile_mlir(mlir_file, device="cpu", output_path=temp_dir / "model_cpu.vmfb")
+        vmfb_path = pi.compile_mlir(
+            mlir_file, device="cpu", output_path=temp_dir / "model_cpu.vmfb"
+        )
 
         assert vmfb_path.exists()
         assert vmfb_path.suffix == ".vmfb"
@@ -145,7 +158,9 @@ class TestMLIRCompilation:
     @pytest.mark.vulkan
     def test_compile_mlir_vulkan(self, mlir_file, temp_dir):
         """Test MLIR compilation for Vulkan."""
-        vmfb_path = pi.compile_mlir(mlir_file, device="vulkan", output_path=temp_dir / "model_vulkan.vmfb")
+        vmfb_path = pi.compile_mlir(
+            mlir_file, device="vulkan", output_path=temp_dir / "model_vulkan.vmfb"
+        )
 
         assert vmfb_path.exists()
 
@@ -180,6 +195,7 @@ class TestMLIRCompilation:
 # =============================================================================
 # End-to-End Workflow Tests
 # =============================================================================
+
 
 class TestMLIRWorkflow:
     """End-to-end tests for MLIR workflow."""
@@ -246,6 +262,7 @@ class TestMLIRWorkflow:
 # Backend Method Tests
 # =============================================================================
 
+
 class TestIREEBackendMethods:
     """Tests for IREEBackend emit_mlir and compile_mlir methods."""
 
@@ -265,7 +282,9 @@ class TestIREEBackendMethods:
         mlir = backend.emit_mlir(model_path, temp_dir / "model.mlir")
 
         # Then compile
-        vmfb_path = backend.compile_mlir(mlir.path, device="cpu", output_path=temp_dir / "model.vmfb")
+        vmfb_path = backend.compile_mlir(
+            mlir.path, device="cpu", output_path=temp_dir / "model.vmfb"
+        )
 
         assert vmfb_path.exists()
 
@@ -287,6 +306,7 @@ class TestIREEBackendMethods:
 # =============================================================================
 # MLIR Content Analysis Tests
 # =============================================================================
+
 
 class TestMLIRContent:
     """Tests for MLIR content analysis."""

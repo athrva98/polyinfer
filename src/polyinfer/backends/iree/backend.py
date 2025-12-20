@@ -1,16 +1,16 @@
 """IREE backend implementation."""
 
-from pathlib import Path
-from typing import Union
-import numpy as np
-import subprocess
-import tempfile
-import sys
 import shutil
+import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
-from polyinfer.backends.base import Backend, CompiledModel
+import numpy as np
+
 from polyinfer._logging import get_logger
+from polyinfer.backends.base import Backend, CompiledModel
 
 _logger = get_logger("backends.iree")
 
@@ -25,6 +25,7 @@ class MLIROutput:
         source_model: Path to the source ONNX model
         dialect: The MLIR dialect used (e.g., 'iree')
     """
+
     path: Path
     content: str | None = None
     source_model: Path | None = None
@@ -54,12 +55,13 @@ class MLIROutput:
 
         return output_path
 
+
 # Check if IREE is available
 try:
     import iree.runtime as iree_rt
 
     IREE_RUNTIME_AVAILABLE = True
-    _logger.debug(f"IREE Runtime available")
+    _logger.debug("IREE Runtime available")
 except ImportError:
     IREE_RUNTIME_AVAILABLE = False
     iree_rt = None
@@ -155,10 +157,7 @@ class IREEModel(CompiledModel):
         driver = DEVICE_TO_DRIVER.get(device_type, "local-task")
 
         # Load the module using the simpler BoundModule API
-        self._module = iree_rt.load_vm_flatbuffer_file(
-            str(vmfb_path),
-            driver=driver
-        )
+        self._module = iree_rt.load_vm_flatbuffer_file(str(vmfb_path), driver=driver)
 
         # Find the main inference function
         self._func = None
@@ -192,12 +191,14 @@ class IREEModel(CompiledModel):
     def output_names(self) -> list[str]:
         return self._output_names
 
-    def __call__(self, *inputs: np.ndarray) -> Union[np.ndarray, tuple[np.ndarray, ...]]:
+    def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
         # Ensure inputs are contiguous float32
         inputs = tuple(np.ascontiguousarray(inp, dtype=np.float32) for inp in inputs)
 
         # Run inference
+        if self._func is None:
+            raise RuntimeError("Model function not initialized")
         outputs = self._func(*inputs)
 
         # Convert outputs to numpy
@@ -225,14 +226,14 @@ class IREEBackend(Backend):
 
         # Check for Vulkan
         try:
-            config = iree_rt.Config(driver_name="vulkan")
+            iree_rt.Config(driver_name="vulkan")
             devices.append("vulkan")
         except Exception:
             pass
 
         # Check for CUDA
         try:
-            config = iree_rt.Config(driver_name="cuda")
+            iree_rt.Config(driver_name="cuda")
             devices.append("cuda")
         except Exception:
             pass
@@ -255,13 +256,8 @@ class IREEBackend(Backend):
         if not IREE_RUNTIME_AVAILABLE:
             return False
 
-        # Also need compiler tools to be useful
-        if not IREE_COMPILER_AVAILABLE:
-            # Check for CLI tools as fallback
-            if not _get_iree_import_onnx() or not _get_iree_compile():
-                return False
-
-        return True
+        # Need compiler tools or CLI tools as fallback
+        return IREE_COMPILER_AVAILABLE or bool(_get_iree_import_onnx() and _get_iree_compile())
 
     def load(
         self,
@@ -290,13 +286,13 @@ class IREEBackend(Backend):
 
         _logger.debug(f"Loading model: {model_path}")
 
-        model_path = Path(model_path)
+        model_path_obj = Path(model_path)
         device_type = device.split(":")[0] if ":" in device else device
 
         # Determine paths
         target = DEVICE_TO_TARGET.get(device_type, "llvm-cpu")
         cache_dir = Path(kwargs.get("cache_dir", "."))
-        vmfb_path = cache_dir / f"{model_path.stem}_{target}.vmfb"
+        vmfb_path = cache_dir / f"{model_path_obj.stem}_{target}.vmfb"
 
         _logger.debug(f"Target: {target}, cache path: {vmfb_path}")
 
@@ -310,9 +306,9 @@ class IREEBackend(Backend):
         if not IREE_COMPILER_AVAILABLE:
             # Try using CLI tools
             _logger.debug("Using CLI tools for compilation")
-            vmfb_path = self._compile_with_cli(model_path, target, vmfb_path, **kwargs)
+            vmfb_path = self._compile_with_cli(model_path_obj, target, vmfb_path, **kwargs)
         else:
-            vmfb_path = self._compile_with_api(model_path, target, vmfb_path, **kwargs)
+            vmfb_path = self._compile_with_api(model_path_obj, target, vmfb_path, **kwargs)
 
         _logger.info(f"Compilation complete: {vmfb_path}")
         return self._load_vmfb(vmfb_path, device)
@@ -352,18 +348,17 @@ class IREEBackend(Backend):
             module @model {
               func.func @main_graph(...
         """
-        model_path = Path(model_path)
+        model_path_obj = Path(model_path)
 
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model not found: {model_path}")
+        if not model_path_obj.exists():
+            raise FileNotFoundError(f"Model not found: {model_path_obj}")
 
         # Determine output path
-        if output_path is None:
-            output_path = model_path.with_suffix(".mlir")
-        else:
-            output_path = Path(output_path)
+        output_path_obj = (
+            model_path_obj.with_suffix(".mlir") if output_path is None else Path(output_path)
+        )
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         # Find IREE import tool
         iree_import = _get_iree_import_onnx()
@@ -375,10 +370,10 @@ class IREEBackend(Backend):
             )
 
         # Convert ONNX to MLIR
-        _logger.debug(f"Converting ONNX to MLIR: {model_path} -> {output_path}")
+        _logger.debug(f"Converting ONNX to MLIR: {model_path_obj} -> {output_path_obj}")
         try:
-            result = subprocess.run(
-                [iree_import, str(model_path), "-o", str(output_path)],
+            subprocess.run(
+                [iree_import, str(model_path_obj), "-o", str(output_path_obj)],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -387,17 +382,17 @@ class IREEBackend(Backend):
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
             _logger.error(f"ONNX to MLIR conversion failed: {error_msg}")
-            raise RuntimeError(f"ONNX to MLIR conversion failed: {error_msg}")
+            raise RuntimeError(f"ONNX to MLIR conversion failed: {error_msg}") from e
 
         # Load content if requested
         content = None
         if load_content:
-            content = output_path.read_text()
+            content = output_path_obj.read_text()
 
         return MLIROutput(
-            path=output_path,
+            path=output_path_obj,
             content=content,
-            source_model=model_path,
+            source_model=model_path_obj,
             dialect="iree",
         )
 
@@ -459,7 +454,8 @@ class IREEBackend(Backend):
             str(mlir_path),
             f"--iree-hal-target-backends={target}",
             f"--iree-opt-level=O{opt_level}",
-            "-o", str(output_path),
+            "-o",
+            str(output_path),
         ]
 
         # Add target-specific flags
@@ -470,7 +466,7 @@ class IREEBackend(Backend):
             subprocess.run(cmd, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            raise RuntimeError(f"MLIR compilation failed: {error_msg}")
+            raise RuntimeError(f"MLIR compilation failed: {error_msg}") from e
 
         return output_path
 
@@ -523,7 +519,7 @@ class IREEBackend(Backend):
 
         try:
             # ONNX -> MLIR
-            result = subprocess.run(
+            subprocess.run(
                 [iree_import, str(onnx_path), "-o", str(mlir_path)],
                 check=True,
                 capture_output=True,
@@ -537,19 +533,20 @@ class IREEBackend(Backend):
                 str(mlir_path),
                 f"--iree-hal-target-backends={target}",
                 f"--iree-opt-level=O{opt_level}",
-                "-o", str(vmfb_path),
+                "-o",
+                str(vmfb_path),
             ]
 
             # Add target-specific flags
             if target == "llvm-cpu":
                 cmd.append("--iree-llvmcpu-target-cpu=host")
 
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
             return vmfb_path
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            raise RuntimeError(f"IREE compilation failed: {error_msg}")
+            raise RuntimeError(f"IREE compilation failed: {error_msg}") from e
 
         finally:
             if mlir_path.exists():

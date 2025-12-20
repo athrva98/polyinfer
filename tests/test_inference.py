@@ -1,7 +1,8 @@
 """Tests for inference correctness and consistency."""
 
-import pytest
 import numpy as np
+import pytest
+
 import polyinfer as pi
 
 
