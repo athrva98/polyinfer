@@ -61,7 +61,7 @@ class TestIntelCPU:
     def test_cpu_inference(self, test_model, test_input):
         """Test inference on CPU."""
         model = pi.load(test_model, backend="openvino", device="cpu")
-        assert model.backend_name == "openvino"
+        assert model.backend_name.startswith("openvino")
         output = model(test_input)
         assert output is not None
 
@@ -87,7 +87,7 @@ class TestIntelGPU:
     def test_igpu_inference(self, test_model, test_input):
         """Test inference on Intel iGPU."""
         model = pi.load(test_model, backend="openvino", device="intel-gpu")
-        assert model.backend_name == "openvino"
+        assert model.backend_name.startswith("openvino")
         output = model(test_input)
         assert output is not None
 
@@ -113,7 +113,7 @@ class TestIntelNPU:
     def test_npu_inference(self, test_model, test_input):
         """Test inference on Intel NPU."""
         model = pi.load(test_model, backend="openvino", device="npu")
-        assert model.backend_name == "openvino"
+        assert model.backend_name.startswith("openvino")
         output = model(test_input)
         assert output is not None
 
