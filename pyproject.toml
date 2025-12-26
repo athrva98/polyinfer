@@ -20,6 +20,13 @@ keywords = [
     "openvino",
     "onnxruntime",
     "deep-learning",
+    "vulkan",
+    "iree",
+    "mlir",
+    "gpu",
+    "amd",
+    "nvidia",
+    "intel",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -45,7 +52,7 @@ onnxruntime = ["onnxruntime>=1.17"]
 onnxruntime-gpu = ["onnxruntime-gpu>=1.17"]
 onnxruntime-directml = ["onnxruntime-directml>=1.17"]
 openvino = ["openvino>=2024.0"]
-iree = ["iree-base-compiler>=3.0", "iree-base-runtime>=3.0"]
+iree = ["iree-base-compiler[onnx]>=3.0", "iree-base-runtime>=3.0"]
 
 # TensorRT native backend (install separately to avoid CUDA conflicts)
 # IMPORTANT: tensorrt-cu12-libs depends on cuda-toolkit which overwrites CUDA libraries
@@ -98,9 +105,9 @@ intel = [
     "torchvision>=0.15",
 ]
 
-# Vulkan (cross-platform GPU via IREE)
+# Vulkan (cross-platform GPU via IREE - AMD, NVIDIA, Intel, ARM, Qualcomm)
 vulkan = [
-    "iree-base-compiler>=3.0",
+    "iree-base-compiler[onnx]>=3.0",
     "iree-base-runtime>=3.0",
     "torch>=2.0",
     "torchvision>=0.15",

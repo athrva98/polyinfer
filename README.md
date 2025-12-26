@@ -76,8 +76,10 @@ model = pi.load("model.onnx", device="tensorrt")   # TensorRT (generally the fas
 # AMD/Intel/Any GPU on Windows
 model = pi.load("model.onnx", device="directml")
 
-# Vulkan (cross-platform GPU)
+# Vulkan (cross-platform GPU - AMD, NVIDIA, Intel, ARM, Qualcomm)
 model = pi.load("model.onnx", device="vulkan")
+model = pi.load("model.onnx", device="vulkan", vulkan_target="rdna3")  # AMD RX 7000
+model = pi.load("model.onnx", device="vulkan", vulkan_target="ampere") # NVIDIA RTX 30
 ```
 
 ## Backend Selection
@@ -178,7 +180,7 @@ output = model(input_data)
 |---------|---------|---------|
 | **ONNX Runtime** | CPU, CUDA, TensorRT, DirectML | `[cpu]`, `[nvidia]`, `[amd]` |
 | **OpenVINO** | CPU, Intel GPU, NPU | `[cpu]`, `[intel]` |
-| **IREE** | CPU, Vulkan, CUDA | `[all]` |
+| **IREE** | CPU, Vulkan (AMD/NVIDIA/Intel/ARM/Qualcomm), CUDA | `[all]`, `[vulkan]` |
 
 ## MLIR Export (Custom Hardware)
 
@@ -499,21 +501,48 @@ model = pi.load("model.onnx", backend="openvino", device="cpu",
 
 ### IREE Backend
 
-Cross-platform with MLIR export capability.
+Cross-platform with MLIR export capability and comprehensive Vulkan GPU support.
 
 ```python
+# Basic Vulkan usage
 model = pi.load("model.onnx", backend="iree", device="vulkan",
     opt_level=3,                    # 0-3
     cache_dir="./iree_cache",
     force_compile=False,
     save_mlir=True,                 # Save intermediate MLIR
-    mlir_path="./model.mlir",
 )
+
+# GPU-specific Vulkan targets for optimal performance
+model = pi.load("model.onnx", backend="iree", device="vulkan",
+    vulkan_target="rtx4090",        # NVIDIA RTX 4090 (uses sm_89)
+    # vulkan_target="rdna3",        # AMD RX 7000 series
+    # vulkan_target="ampere",       # NVIDIA RTX 30 series
+    # vulkan_target="arc",          # Intel Arc
+    # vulkan_target="adreno",       # Qualcomm mobile GPUs
+    opt_level=3,
+    data_tiling=True,               # Cache optimization
+    opset_version=17,               # Upgrade ONNX opset if needed
+)
+
+# List all available Vulkan GPU targets
+from polyinfer.backends.iree import VULKAN_TARGETS
+for name, target in VULKAN_TARGETS.items():
+    print(f"{name}: {target.description}")
 
 # MLIR export for custom hardware
 mlir = pi.export_mlir("model.onnx", "model.mlir", load_content=True)
-vmfb = pi.compile_mlir("model.mlir", device="vulkan", opt_level=3)
+vmfb = pi.compile_mlir("model.mlir", device="vulkan", vulkan_target="rdna3")
 ```
+
+**Supported Vulkan GPU Targets:**
+
+| Vendor | Targets | GPUs |
+|--------|---------|------|
+| **AMD** | `rdna3`, `rdna2`, `gfx1100`, `rx7900xtx`, etc. | RX 7000/6000 series |
+| **NVIDIA** | `ada`, `ampere`, `turing`, `sm_89`, `rtx4090`, etc. | RTX 40/30/20 series |
+| **Intel** | `arc`, `arc_a770`, `arc_a750` | Arc A-series |
+| **ARM** | `valhall4`, `valhall`, `mali_g715` | Mali GPUs |
+| **Qualcomm** | `adreno` | Snapdragon mobile GPUs |
 
 ---
 
@@ -621,8 +650,21 @@ class MLIROutput:
 | Device | IREE Target | Use Case |
 |--------|-------------|----------|
 | `cpu` | `llvm-cpu` | CPU with LLVM optimizations |
-| `vulkan` | `vulkan-spirv` | Cross-platform GPU |
+| `vulkan` | `vulkan-spirv` | Cross-platform GPU (AMD, NVIDIA, Intel, ARM, Qualcomm) |
 | `cuda` | `cuda` | NVIDIA GPU via CUDA |
+
+**Vulkan GPU-Specific Compilation:**
+
+```python
+# Compile for specific GPU architecture
+vmfb = pi.compile_mlir("model.mlir", device="vulkan",
+    vulkan_target="rdna3",      # AMD RX 7000
+    # vulkan_target="ampere",   # NVIDIA RTX 30
+    # vulkan_target="arc",      # Intel Arc
+    opt_level=3,
+    data_tiling=True,
+)
+```
 
 ---
 
@@ -738,8 +780,28 @@ import polyinfer as pi
 
 **Solution:**
 ```bash
-pip install iree-base-compiler iree-base-runtime
+pip install iree-base-compiler[onnx] iree-base-runtime
 ```
+
+#### IREE compilation fails with "failed to legalize operation"
+
+**Cause:** ONNX operator not supported or opset version issue.
+
+**Solution:**
+```python
+# Try upgrading opset version
+model = pi.load("model.onnx", backend="iree", device="vulkan",
+    opset_version=17,  # Upgrade to opset 17
+)
+
+# Or manually upgrade the ONNX file
+import onnx
+model = onnx.load("model.onnx")
+upgraded = onnx.version_converter.convert_version(model, 17)
+onnx.save(upgraded, "model_v17.onnx")
+```
+
+Check [IREE ONNX Op Support](https://github.com/iree-org/iree/issues) for operator compatibility.
 
 #### Vulkan tests produce NaN values
 
@@ -921,8 +983,10 @@ mypy src/polyinfer/
 | Good NVIDIA performance + compatibility | ONNX Runtime CUDA |
 | Intel CPU optimization | OpenVINO |
 | Intel GPU/NPU | OpenVINO |
-| Cross-platform GPU | IREE Vulkan |
+| Cross-platform GPU (AMD/NVIDIA/Intel/ARM) | IREE Vulkan with GPU target |
 | AMD GPU (Windows) | ONNX Runtime DirectML |
+| AMD GPU (Linux) | IREE Vulkan (`vulkan_target="rdna3"`) |
+| Mobile/Embedded (ARM Mali, Qualcomm Adreno) | IREE Vulkan |
 
 ### Benchmarking
 

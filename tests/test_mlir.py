@@ -330,3 +330,290 @@ class TestMLIRContent:
         assert "1,3,640,640" in content or "[1, 3, 640, 640]" in content
         # YOLOv8n output shape
         assert "1,84,8400" in content or "[1, 84, 8400]" in content
+
+
+# =============================================================================
+# IREE Compile Options Tests (No IREE runtime required)
+# =============================================================================
+
+
+# Check if IREE backend module is importable (even without runtime)
+try:
+    from polyinfer.backends.iree import (
+        VULKAN_TARGETS,
+        IREECompilationError,
+        IREECompileOptions,
+        VulkanGPUVendor,
+    )
+
+    IREE_MODULE_AVAILABLE = True
+except ImportError:
+    IREE_MODULE_AVAILABLE = False
+
+
+@pytest.mark.skipif(not IREE_MODULE_AVAILABLE, reason="IREE backend module not available")
+class TestIREECompileOptions:
+    """Tests for IREECompileOptions dataclass."""
+
+    def test_default_options(self):
+        """Test default compile options."""
+        opts = IREECompileOptions()
+        assert opts.opt_level == 2
+        assert opts.strip_debug is False  # Default is False for debugging
+        assert opts.data_tiling is True
+        assert opts.const_eval is True
+        assert opts.vulkan_target is None
+        assert opts.opset_version is None
+        assert opts.extra_flags == []
+
+    def test_custom_options(self):
+        """Test custom compile options."""
+        opts = IREECompileOptions(
+            opt_level=3,
+            strip_debug=False,
+            data_tiling=False,
+            vulkan_target="rdna3",
+            opset_version=17,
+            extra_flags=["--custom-flag"],
+        )
+        assert opts.opt_level == 3
+        assert opts.strip_debug is False
+        assert opts.data_tiling is False
+        assert opts.vulkan_target == "rdna3"
+        assert opts.opset_version == 17
+        assert opts.extra_flags == ["--custom-flag"]
+
+    def test_compile_flags_cpu(self):
+        """Test compile flag generation for CPU target."""
+        opts = IREECompileOptions(opt_level=3, strip_debug=True, data_tiling=True)
+        flags = opts.to_compile_flags("llvm-cpu")
+
+        assert "--iree-hal-target-backends=llvm-cpu" in flags
+        assert "--iree-opt-level=O3" in flags  # Uses O prefix
+        assert "--iree-llvmcpu-target-cpu=host" in flags
+
+    def test_compile_flags_vulkan_with_target(self):
+        """Test compile flag generation for Vulkan with GPU target."""
+        opts = IREECompileOptions(vulkan_target="rdna3")
+        flags = opts.to_compile_flags("vulkan-spirv")
+
+        assert "--iree-hal-target-backends=vulkan-spirv" in flags
+        # Should have vulkan target flag with the resolved target
+        vulkan_flag = [f for f in flags if "--iree-vulkan-target=" in f]
+        assert len(vulkan_flag) == 1
+        # rdna3 resolves to rdna3 (the architecture name from VULKAN_TARGETS)
+        assert "rdna3" in vulkan_flag[0]
+
+    def test_compile_flags_vulkan_custom_target(self):
+        """Test compile flag generation for Vulkan with custom target."""
+        opts = IREECompileOptions(vulkan_target="custom_target_xyz")
+        flags = opts.to_compile_flags("vulkan-spirv")
+
+        # Should pass through custom target as-is
+        assert "--iree-vulkan-target=custom_target_xyz" in flags
+
+    def test_compile_flags_extra_flags(self):
+        """Test that extra flags are appended."""
+        opts = IREECompileOptions(extra_flags=["--my-flag=value", "--another-flag"])
+        flags = opts.to_compile_flags("llvm-cpu")
+
+        assert "--my-flag=value" in flags
+        assert "--another-flag" in flags
+
+    def test_import_flags_with_opset(self):
+        """Test import flag generation with opset version."""
+        opts = IREECompileOptions(opset_version=17)
+        flags = opts.to_import_flags()
+
+        assert "--opset-version=17" in flags
+
+    def test_import_flags_without_opset(self):
+        """Test import flag generation without opset version."""
+        opts = IREECompileOptions()
+        flags = opts.to_import_flags()
+
+        assert flags == []
+
+
+# =============================================================================
+# Vulkan Targets Tests (No IREE runtime required)
+# =============================================================================
+
+
+@pytest.mark.skipif(not IREE_MODULE_AVAILABLE, reason="IREE backend module not available")
+class TestVulkanTargets:
+    """Tests for Vulkan GPU target presets."""
+
+    def test_vulkan_targets_dict_exists(self):
+        """Test that VULKAN_TARGETS dict is exported."""
+        assert isinstance(VULKAN_TARGETS, dict)
+        assert len(VULKAN_TARGETS) > 0
+
+    def test_vulkan_target_dataclass(self):
+        """Test VulkanTarget dataclass structure."""
+        for _name, target in VULKAN_TARGETS.items():
+            assert hasattr(target, "target")
+            assert hasattr(target, "vendor")
+            assert hasattr(target, "description")
+            assert isinstance(target.target, str)
+            assert target.vendor in VulkanGPUVendor
+            assert isinstance(target.description, str)
+            assert len(target.target) > 0
+            assert len(target.description) > 0
+
+    def test_known_gpu_targets(self):
+        """Test that known GPU targets are present."""
+        # AMD RDNA targets
+        assert "rdna3" in VULKAN_TARGETS
+        assert "rdna2" in VULKAN_TARGETS
+        assert "gfx1100" in VULKAN_TARGETS
+
+        # NVIDIA targets
+        assert "ada" in VULKAN_TARGETS
+        assert "ampere" in VULKAN_TARGETS
+        assert "turing" in VULKAN_TARGETS
+        assert "sm_89" in VULKAN_TARGETS
+
+        # Intel targets
+        assert "arc" in VULKAN_TARGETS
+
+        # ARM targets
+        assert "valhall" in VULKAN_TARGETS
+
+        # Qualcomm targets
+        assert "adreno" in VULKAN_TARGETS
+
+    def test_vulkan_gpu_vendor_enum(self):
+        """Test VulkanGPUVendor enum values."""
+        assert VulkanGPUVendor.AMD.value == "amd"
+        assert VulkanGPUVendor.NVIDIA.value == "nvidia"
+        assert VulkanGPUVendor.INTEL.value == "intel"
+        assert VulkanGPUVendor.ARM.value == "arm"
+        assert VulkanGPUVendor.QUALCOMM.value == "qualcomm"
+
+    def test_rdna3_target_value(self):
+        """Test RDNA3 target value."""
+        rdna3 = VULKAN_TARGETS["rdna3"]
+        assert rdna3.target == "rdna3"
+        assert rdna3.vendor == VulkanGPUVendor.AMD
+
+    def test_ampere_target_value(self):
+        """Test Ampere target value."""
+        ampere = VULKAN_TARGETS["ampere"]
+        assert ampere.target == "ampere"
+        assert ampere.vendor == VulkanGPUVendor.NVIDIA
+
+    def test_ada_target_value(self):
+        """Test Ada target value."""
+        ada = VULKAN_TARGETS["ada"]
+        assert ada.target == "ada"
+        assert ada.vendor == VulkanGPUVendor.NVIDIA
+
+    def test_specific_gpu_resolves_to_architecture(self):
+        """Test that specific GPUs resolve to architecture targets."""
+        # Specific GPUs should map to their architecture
+        rtx4090 = VULKAN_TARGETS["rtx4090"]
+        assert rtx4090.target == "sm_89"  # Ada Lovelace uses SM 8.9
+        assert rtx4090.vendor == VulkanGPUVendor.NVIDIA
+
+        rx7900xtx = VULKAN_TARGETS["rx7900xtx"]
+        assert rx7900xtx.target == "rdna3"
+        assert rx7900xtx.vendor == VulkanGPUVendor.AMD
+
+
+# =============================================================================
+# MLIR Export with Options Tests
+# =============================================================================
+
+
+class TestMLIRExportWithOptions:
+    """Tests for MLIR export with compile options via backend methods."""
+
+    def test_export_mlir_with_opset_version(self, model_path, temp_dir):
+        """Test MLIR export with opset version upgrade via backend."""
+        backend = pi.get_backend("iree")
+        output_path = temp_dir / "model_v17.mlir"
+        mlir = backend.emit_mlir(model_path, output_path, opset_version=17)
+
+        assert mlir.path == output_path
+        assert mlir.path.exists()
+
+    def test_compile_mlir_with_options(self, model_path, temp_dir):
+        """Test MLIR compilation with various options via backend."""
+        backend = pi.get_backend("iree")
+
+        # First export
+        mlir_path = temp_dir / "model.mlir"
+        backend.emit_mlir(model_path, mlir_path)
+
+        # Compile with custom options
+        vmfb_path = backend.compile_mlir(
+            mlir_path,
+            device="cpu",
+            output_path=temp_dir / "model.vmfb",
+            opt_level=3,
+            data_tiling=True,
+        )
+
+        assert vmfb_path.exists()
+
+    @pytest.mark.vulkan
+    def test_compile_mlir_with_vulkan_target(self, model_path, temp_dir):
+        """Test MLIR compilation with Vulkan GPU target via backend."""
+        backend = pi.get_backend("iree")
+
+        # First export
+        mlir_path = temp_dir / "model.mlir"
+        backend.emit_mlir(model_path, mlir_path)
+
+        # Compile with Vulkan target
+        vmfb_path = backend.compile_mlir(
+            mlir_path,
+            device="vulkan",
+            output_path=temp_dir / "model_vulkan.vmfb",
+            vulkan_target="rdna3",
+            opt_level=3,
+        )
+
+        assert vmfb_path.exists()
+
+
+# =============================================================================
+# Error Handling Tests (No IREE runtime required)
+# =============================================================================
+
+
+@pytest.mark.skipif(not IREE_MODULE_AVAILABLE, reason="IREE backend module not available")
+class TestIREEErrorHandling:
+    """Tests for IREE error handling and exception chaining."""
+
+    def test_compilation_error_has_suggestions(self):
+        """Test that IREECompilationError has suggestions."""
+        error = IREECompilationError(
+            "Test error message",
+            suggestions=["Try this", "Or try that"],
+        )
+
+        assert error.suggestions == ["Try this", "Or try that"]
+        assert "Test error message" in str(error)
+        assert "Try this" in str(error)
+        assert "Or try that" in str(error)
+
+    def test_compilation_error_without_suggestions(self):
+        """Test IREECompilationError without suggestions."""
+        error = IREECompilationError("Simple error")
+
+        assert error.suggestions == []
+        assert "Simple error" in str(error)
+
+    def test_emit_mlir_file_not_found_chained(self, temp_dir):
+        """Test that emit_mlir raises properly chained exceptions."""
+        backend = pi.get_backend("iree")
+
+        with pytest.raises(FileNotFoundError):
+            backend.emit_mlir("nonexistent_model.onnx", temp_dir / "out.mlir")
+
+    def test_compile_mlir_file_not_found_chained(self, temp_dir):
+        """Test that compile_mlir raises properly chained exceptions."""
+        with pytest.raises(FileNotFoundError):
+            pi.compile_mlir("nonexistent.mlir", device="cpu")
