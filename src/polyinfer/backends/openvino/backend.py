@@ -23,12 +23,23 @@ except ImportError:
     _logger.debug("OpenVINO not installed")
 
 
-# Performance hint mapping
+# Valid OpenVINO PERFORMANCE_HINT values, for the explicit `performance_hint`
+# option. Prefer this over the coarse numeric `optimization_level` scale.
+PERFORMANCE_HINTS = ("LATENCY", "THROUGHPUT", "CUMULATIVE_THROUGHPUT")
+
+# Mapping from the generic `optimization_level` scale to an OpenVINO
+# performance hint: lower favours throughput, higher favours latency.
+#
+# NOTE: this table used to read {0: LATENCY, 1: THROUGHPUT, 2: LATENCY}, which
+# was the inverse of the documented "0=throughput ... 2=latency" contract at
+# levels 0 and 1 - asking for throughput got you a latency-tuned model.
+# OpenVINO offers no distinct "balanced" hint, so level 1 maps to THROUGHPUT;
+# use `performance_hint` when you need exact control.
 PERF_HINTS = {
-    0: "LATENCY",  # Optimize for low latency
-    1: "THROUGHPUT",  # Optimize for throughput
-    2: "LATENCY",  # Default to latency
-    3: "LATENCY",  # Max optimization = latency focused
+    0: "THROUGHPUT",  # Maximize throughput
+    1: "THROUGHPUT",  # "Balanced" - no distinct OpenVINO hint exists
+    2: "LATENCY",  # Default: minimize single-inference latency
+    3: "LATENCY",  # Latency-focused
 }
 
 
@@ -197,13 +208,21 @@ class OpenVINOBackend(Backend):
             model_path: Path to ONNX file
             device: Target device (cpu, intel-gpu, npu)
             **kwargs: Additional options:
-                - optimization_level: 0=throughput, 1=balanced, 2=latency (default)
-                - num_threads: Number of inference threads
+                - performance_hint: Explicit OpenVINO hint - "LATENCY",
+                  "THROUGHPUT", or "CUMULATIVE_THROUGHPUT". Takes precedence
+                  over optimization_level. Preferred for exact control.
+                - optimization_level: Coarse scale, 0-3. 0 and 1 map to
+                  THROUGHPUT, 2 (default) and 3 map to LATENCY. Raises
+                  ValueError if out of range.
+                - num_threads: Number of inference threads (CPU only)
                 - enable_caching: Enable model caching
                 - cache_dir: Directory for cached models
 
         Returns:
             Compiled model ready for inference
+
+        Raises:
+            ValueError: If performance_hint or optimization_level is invalid.
         """
         if not OPENVINO_AVAILABLE:
             _logger.error("OpenVINO not installed")
@@ -236,9 +255,27 @@ class OpenVINOBackend(Backend):
         # Configure properties
         config = {}
 
-        # Performance hint
-        opt_level = kwargs.get("optimization_level", 2)
-        perf_hint = PERF_HINTS.get(opt_level, "LATENCY")
+        # Performance hint. An explicit `performance_hint` wins over the
+        # coarse numeric `optimization_level` scale.
+        perf_hint = kwargs.get("performance_hint")
+        if perf_hint is not None:
+            perf_hint = str(perf_hint).upper()
+            if perf_hint not in PERFORMANCE_HINTS:
+                raise ValueError(
+                    f"Invalid performance_hint {perf_hint!r}. "
+                    f"Expected one of {list(PERFORMANCE_HINTS)}."
+                )
+        else:
+            opt_level = kwargs.get("optimization_level", 2)
+            if opt_level not in PERF_HINTS:
+                raise ValueError(
+                    f"Invalid optimization_level {opt_level!r} for the openvino backend. "
+                    f"Expected one of {sorted(PERF_HINTS)} "
+                    "(lower favours throughput, higher favours latency), "
+                    "or pass performance_hint= for explicit control."
+                )
+            perf_hint = PERF_HINTS[opt_level]
+
         config["PERFORMANCE_HINT"] = perf_hint
 
         # Threading (CPU only)

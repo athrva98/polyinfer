@@ -497,11 +497,18 @@ Optimized for Intel hardware.
 
 ```python
 model = pi.load("model.onnx", backend="openvino", device="cpu",
-    optimization_level=2,           # 0=throughput, 1=balanced, 2=latency
-    num_threads=8,                  # CPU threads
+    performance_hint="LATENCY",     # LATENCY | THROUGHPUT | CUMULATIVE_THROUGHPUT
+    num_threads=8,                  # CPU threads (CPU device only)
     enable_caching=True,
     cache_dir="./ov_cache",
 )
+
+# Or use the coarse numeric scale (lower favours throughput, higher favours latency):
+#   optimization_level=0 or 1 -> THROUGHPUT
+#   optimization_level=2 (default) or 3 -> LATENCY
+# `performance_hint` takes precedence when both are given. Out-of-range values
+# raise ValueError rather than silently falling back to a default.
+model = pi.load("model.onnx", backend="openvino", device="cpu", optimization_level=0)
 ```
 
 ### IREE Backend
