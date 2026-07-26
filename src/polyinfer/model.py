@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
+from polyinfer._devices import normalize_device
 from polyinfer._logging import get_logger
 from polyinfer.backends.base import CompiledModel
 from polyinfer.config import InferenceConfig
@@ -89,21 +90,11 @@ class Model:
 
     @staticmethod
     def _normalize_device(device: str) -> str:
-        """Normalize device string."""
-        device = device.lower().strip()
-        # Aliases
-        aliases = {
-            "gpu": "cuda",
-            "nvidia": "cuda",
-            "trt": "tensorrt",
-        }
-        # Handle base device without index
-        base = device.split(":")[0]
-        if base in aliases:
-            if ":" in device:
-                return f"{aliases[base]}:{device.split(':')[1]}"
-            return aliases[base]
-        return device
+        """Normalize device string.
+
+        Delegates to the single canonical alias table in polyinfer._devices.
+        """
+        return normalize_device(device)
 
     @staticmethod
     def _normalize_backend(backend: str | None, device: str) -> tuple[str | None, str]:

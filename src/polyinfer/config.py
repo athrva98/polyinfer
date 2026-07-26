@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from polyinfer._devices import device_index, device_type, normalize_device
+
 
 @dataclass
 class InferenceConfig:
@@ -29,36 +31,18 @@ class InferenceConfig:
     extra_options: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        # Normalize device names
-        self.device = self._normalize_device(self.device)
-
-    def _normalize_device(self, device: str) -> str:
-        """Normalize device string to standard format."""
-        device = device.lower().strip()
-
-        # Handle aliases
-        aliases = {
-            "gpu": "cuda:0",
-            "cuda": "cuda:0",
-            "dml": "directml",
-            "directx": "directml",
-        }
-
-        return aliases.get(device, device)
+        # Normalize device names using the canonical alias table.
+        self.device = normalize_device(self.device)
 
     @property
     def device_type(self) -> str:
         """Get the device type (cpu, cuda, directml, vulkan)."""
-        if ":" in self.device:
-            return self.device.split(":")[0]
-        return self.device
+        return device_type(self.device)
 
     @property
     def device_id(self) -> int:
         """Get the device ID (0 for CPU, N for cuda:N)."""
-        if ":" in self.device:
-            return int(self.device.split(":")[1])
-        return 0
+        return device_index(self.device)
 
 
 @dataclass

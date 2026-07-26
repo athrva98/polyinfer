@@ -371,8 +371,13 @@ These aliases are automatically normalized:
 |-------|---------------|
 | `gpu`, `nvidia` | `cuda` |
 | `trt` | `tensorrt` |
-| `dml` | `directml` |
-| `igpu`, `intel-igpu` | `intel-gpu` |
+| `dml`, `directx` | `directml` |
+| `igpu`, `intel-igpu`, `intel_igpu`, `intel_gpu` | `intel-gpu` |
+| `amd` | `rocm` |
+| `metal` | `coreml` |
+
+Device strings are case-insensitive and are trimmed of surrounding whitespace.
+An index suffix is preserved through normalization, so `gpu:1` becomes `cuda:1`.
 
 ---
 
