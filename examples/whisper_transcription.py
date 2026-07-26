@@ -118,6 +118,13 @@ def compute_mel_spectrogram(
         fmax=8000,
     )
 
+    # librosa centres its STFT by default, producing 1 + samples/hop = 3001
+    # frames for a 30 s window. Whisper's encoder expects exactly 3000 and
+    # drops the trailing frame, so a 3001-frame spectrogram was rejected by
+    # the fixed-shape encoder. Trim to match.
+    expected_frames = (CHUNK_LENGTH * sr) // hop_length
+    mel = mel[:, :expected_frames]
+
     # Convert to log scale
     log_mel = np.log10(np.clip(mel, a_min=1e-10, a_max=None))
 

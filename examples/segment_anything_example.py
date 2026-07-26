@@ -117,13 +117,17 @@ def preprocess_image(image: np.ndarray, target_size: int = 1024) -> tuple[np.nda
         resized = np.array(pil_img)
 
     # Pad to square
-    padded = np.zeros((target_size, target_size, 3), dtype=np.float32)
-    padded[:new_h, :new_w] = resized
-
-    # Normalize with SAM stats
+    # Normalize BEFORE padding, then pad with true zeros.
+    #
+    # Padding first and normalizing afterwards drove the padded region to
+    # -mean/std (about -2.1, -2.0, -1.8) instead of 0, feeding the encoder a
+    # strongly negative border rather than the neutral one SAM expects.
     mean = np.array([123.675, 116.28, 103.53], dtype=np.float32)
     std = np.array([58.395, 57.12, 57.375], dtype=np.float32)
-    padded = (padded - mean) / std
+    normalized = (resized.astype(np.float32) - mean) / std
+
+    padded = np.zeros((target_size, target_size, 3), dtype=np.float32)
+    padded[:new_h, :new_w] = normalized
 
     # HWC -> CHW -> NCHW
     tensor = padded.transpose(2, 0, 1)[np.newaxis, ...].astype(np.float32)
