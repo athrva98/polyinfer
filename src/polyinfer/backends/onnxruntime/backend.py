@@ -3,20 +3,29 @@
 import numpy as np
 
 from polyinfer._logging import get_logger
-from polyinfer.backends.base import Backend, CompiledModel
+from polyinfer.backends.base import Backend, CompiledModel, describe_import_error
 
 _logger = get_logger("backends.onnxruntime")
 
 # Check if onnxruntime is available
+IMPORT_ERROR: str | None = None
 try:
     import onnxruntime as ort
 
     ONNXRUNTIME_AVAILABLE = True
     _logger.debug(f"ONNX Runtime {ort.__version__} available")
-except ImportError:
+except ImportError as e:
+    # Keep the reason. `import onnxruntime` also raises ImportError when the
+    # package IS installed but its native library fails to load, and
+    # discarding this made that case indistinguishable from "not installed".
     ONNXRUNTIME_AVAILABLE = False
     ort = None
-    _logger.debug("ONNX Runtime not installed")
+    IMPORT_ERROR = describe_import_error(
+        e,
+        packages=("onnxruntime",),
+        install_hint="pip install onnxruntime",
+    )
+    _logger.debug(f"ONNX Runtime unavailable: {IMPORT_ERROR}")
 
 
 # Map device types to execution providers
@@ -199,6 +208,12 @@ class ONNXRuntimeBackend(Backend):
 
     def is_available(self) -> bool:
         return ONNXRUNTIME_AVAILABLE
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        if ONNXRUNTIME_AVAILABLE:
+            return None
+        return IMPORT_ERROR or "not installed (pip install onnxruntime)"
 
     def get_available_providers(self) -> list[str]:
         """Get list of available execution providers."""

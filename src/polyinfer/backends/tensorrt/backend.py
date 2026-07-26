@@ -5,11 +5,12 @@ from pathlib import Path
 import numpy as np
 
 from polyinfer._logging import get_logger
-from polyinfer.backends.base import Backend, CompiledModel
+from polyinfer.backends.base import Backend, CompiledModel, describe_import_error
 
 _logger = get_logger("backends.tensorrt")
 
 # Check if TensorRT is available
+IMPORT_ERROR: str | None = None
 try:
     import tensorrt as trt
 
@@ -21,11 +22,16 @@ try:
 
     TENSORRT_AVAILABLE = True
     _logger.debug(f"TensorRT {trt.__version__} available")
-except ImportError:
+except ImportError as e:
     TENSORRT_AVAILABLE = False
     trt = None
     cudart = None
-    _logger.debug("TensorRT not installed")
+    IMPORT_ERROR = describe_import_error(
+        e,
+        packages=("tensorrt", "cuda"),
+        install_hint="pip install tensorrt-cu12 cuda-python",
+    )
+    _logger.debug(f"TensorRT unavailable: {IMPORT_ERROR}")
 
 
 class TensorRTModel(CompiledModel):
@@ -263,6 +269,12 @@ class TensorRTBackend(Backend):
 
     def is_available(self) -> bool:
         return TENSORRT_AVAILABLE
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        if TENSORRT_AVAILABLE:
+            return None
+        return IMPORT_ERROR or "not installed (pip install tensorrt-cu12 cuda-python)"
 
     def load(
         self,

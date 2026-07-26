@@ -57,6 +57,95 @@ class TestBackendDiscovery:
         assert pi.is_available("fake_backend") is False
 
 
+class TestImportErrorClassification:
+    """A missing package and a broken install must not look the same.
+
+    Both raise ImportError, but "pip install X" only fixes one of them.
+    """
+
+    def test_missing_package_reported_as_not_installed(self):
+        from polyinfer.backends.base import describe_import_error
+
+        reason = describe_import_error(
+            ModuleNotFoundError("No module named 'openvino'", name="openvino"),
+            packages=("openvino",),
+            install_hint="pip install openvino",
+        )
+        assert "not installed" in reason
+        assert "pip install openvino" in reason
+        assert "failed to import" not in reason
+
+    def test_broken_install_reported_as_import_failure(self):
+        """A native-library failure must not be reported as 'not installed'."""
+        from polyinfer.backends.base import describe_import_error
+
+        reason = describe_import_error(
+            ImportError("DLL load failed while importing onnxruntime_pybind11_state"),
+            packages=("onnxruntime",),
+            install_hint="pip install onnxruntime",
+        )
+        assert "failed to import" in reason
+        assert "DLL load failed" in reason
+        assert "not installed" not in reason
+
+    def test_missing_transitive_dependency_is_distinguished(self):
+        """A missing dep of the backend isn't the backend being absent."""
+        from polyinfer.backends.base import describe_import_error
+
+        reason = describe_import_error(
+            ModuleNotFoundError("No module named 'numpy'", name="numpy"),
+            packages=("onnxruntime",),
+            install_hint="pip install onnxruntime",
+        )
+        assert "dependency is missing" in reason
+
+
+class TestBackendErrorReporting:
+    """polyinfer must explain why a backend is unavailable."""
+
+    def test_backend_errors_is_exported(self):
+        assert hasattr(pi, "backend_errors")
+        assert isinstance(pi.backend_errors(), dict)
+
+    def test_every_unavailable_backend_has_a_reason(self):
+        errors = pi.backend_errors()
+        available = set(pi.list_backends())
+
+        for name, reason in errors.items():
+            assert name not in available, f"{name} is available but reported as failing"
+            assert isinstance(reason, str) and reason.strip(), f"{name} has an empty reason"
+
+    def test_available_backends_are_absent_from_errors(self):
+        assert set(pi.list_backends()) & set(pi.backend_errors()) == set()
+
+    def test_no_backend_error_message_lists_reasons(self):
+        """The 'no backend available' error must name the failing backends.
+
+        It previously read "Available backends: []" with no indication of
+        whether anything was installed or why it failed.
+        """
+        from polyinfer.backends.registry import _no_backend_message
+
+        message = _no_backend_message("cpu")
+        assert "cpu" in message
+
+        for name in pi.backend_errors():
+            assert name in message, f"{name} missing from diagnostic message"
+
+    def test_get_backend_error_includes_reason(self):
+        """get_backend() on an unavailable backend must say why."""
+        errors = pi.backend_errors()
+        if not errors:
+            pytest.skip("all registered backends are available")
+
+        name, reason = next(iter(errors.items()))
+        with pytest.raises(RuntimeError) as exc:
+            get_backend(name)
+
+        # The first line of the reason should appear in the raised error.
+        assert reason.split("\n")[0][:40] in str(exc.value)
+
+
 class TestONNXRuntimeBackend:
     """Tests specific to ONNX Runtime backend."""
 

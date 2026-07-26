@@ -29,6 +29,10 @@ def cmd_info(args):
             if backend_info.get("available"):
                 devices = backend_info.get("devices", [])
                 print(f"    Devices: {', '.join(devices)}")
+            else:
+                reason = backend_info.get("unavailable_reason") or backend_info.get("error")
+                if reason:
+                    print(f"    Reason: {reason}")
 
         print("\nAvailable Devices:")
         for device in info["devices"]:

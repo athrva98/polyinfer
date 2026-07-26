@@ -45,6 +45,7 @@ from polyinfer._logging import (
 from polyinfer.compare import benchmark, compare
 from polyinfer.config import InferenceConfig
 from polyinfer.discovery import (
+    backend_errors,
     get_backend,
     is_available,
     list_backends,
@@ -75,6 +76,7 @@ __all__ = [
     "list_devices",
     "get_backend",
     "is_available",
+    "backend_errors",
     # Config
     "InferenceConfig",
     # Utilities

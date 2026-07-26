@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 
 from polyinfer._logging import get_logger
-from polyinfer.backends.base import Backend, CompiledModel
+from polyinfer.backends.base import Backend, CompiledModel, describe_import_error
 
 _logger = get_logger("backends.iree")
 
@@ -220,25 +220,37 @@ class MLIROutput:
 # =============================================================================
 
 # Check if IREE is available
+RUNTIME_IMPORT_ERROR: str | None = None
 try:
     import iree.runtime as iree_rt
 
     IREE_RUNTIME_AVAILABLE = True
     _logger.debug("IREE Runtime available")
-except ImportError:
+except ImportError as e:
     IREE_RUNTIME_AVAILABLE = False
     iree_rt = None  # type: ignore[assignment]
-    _logger.debug("IREE Runtime not installed")
+    RUNTIME_IMPORT_ERROR = describe_import_error(
+        e,
+        packages=("iree",),
+        install_hint="pip install iree-base-runtime",
+    )
+    _logger.debug(f"IREE Runtime unavailable: {RUNTIME_IMPORT_ERROR}")
 
+COMPILER_IMPORT_ERROR: str | None = None
 try:
     import iree.compiler as iree_compiler
 
     IREE_COMPILER_AVAILABLE = True
     _logger.debug("IREE Compiler available")
-except ImportError:
+except ImportError as e:
     IREE_COMPILER_AVAILABLE = False
     iree_compiler = None  # type: ignore[assignment]
-    _logger.debug("IREE Compiler not installed")
+    COMPILER_IMPORT_ERROR = describe_import_error(
+        e,
+        packages=("iree",),
+        install_hint="pip install iree-base-compiler[onnx]",
+    )
+    _logger.debug(f"IREE Compiler unavailable: {COMPILER_IMPORT_ERROR}")
 
 
 def _find_iree_tool(tool_name: str) -> str | None:
@@ -545,6 +557,19 @@ class IREEBackend(Backend):
 
         # Need compiler tools or CLI tools as fallback
         return IREE_COMPILER_AVAILABLE or bool(_get_iree_import_onnx() and _get_iree_compile())
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        if self.is_available():
+            return None
+        if not IREE_RUNTIME_AVAILABLE:
+            return RUNTIME_IMPORT_ERROR or "not installed (pip install iree-base-runtime)"
+        # Runtime is present, so the compiler half is what's missing.
+        return (
+            "runtime is available but the compiler is not "
+            f"({COMPILER_IMPORT_ERROR or 'iree.compiler not importable'}), "
+            "and the iree-import-onnx / iree-compile CLI tools were not found on PATH"
+        )
 
     def list_vulkan_targets(self) -> dict[str, VulkanTarget]:
         """Get all available Vulkan target presets.

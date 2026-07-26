@@ -29,6 +29,13 @@ class BackendInfo:
             self.available = self.get_instance().is_available()
         return self.available
 
+    def unavailable_reason(self) -> str | None:
+        """Why this backend is unavailable, or None if it is available."""
+        try:
+            return self.get_instance().unavailable_reason
+        except Exception as e:  # pragma: no cover - defensive
+            return f"could not determine reason: {e}"
+
 
 # Global registry
 _backends: dict[str, BackendInfo] = {}
@@ -65,9 +72,11 @@ def get_backend(name: str) -> Backend:
 
     info = _backends[name]
     if not info.is_available():
-        _logger.error(f"Backend '{name}' is not available")
+        reason = info.unavailable_reason()
+        _logger.error(f"Backend '{name}' is not available: {reason}")
         raise RuntimeError(
-            f"Backend '{name}' is not available. Install it with: pip install polyinfer[{name}]"
+            f"Backend '{name}' is not available: {reason}\n"
+            f"Install it with: pip install polyinfer[{name}]"
         )
 
     _logger.debug(f"Retrieved backend: {name}")
@@ -126,11 +135,48 @@ def get_best_backend(device: str) -> Backend:
     """
     backends = get_backends_for_device(device)
     if not backends:
-        available = list_backends()
-        raise RuntimeError(
-            f"No backend available for device '{device}'. Available backends: {available}"
-        )
+        raise RuntimeError(_no_backend_message(device))
     return backends[0]
+
+
+def get_unavailable_backends() -> dict[str, str]:
+    """Map each unavailable backend name to the reason it is unavailable.
+
+    Distinguishes "not installed" from "installed but failed to import",
+    which is the difference between a setup step and a broken environment.
+    """
+    reasons = {}
+    for name, info in _backends.items():
+        if not info.is_available():
+            reasons[name] = info.unavailable_reason() or "unknown"
+    return reasons
+
+
+def _no_backend_message(device: str) -> str:
+    """Build an actionable error for when no backend supports a device."""
+    available = list_backends()
+    lines = [f"No backend available for device '{device}'."]
+
+    if available:
+        lines.append(f"Available backends: {available}")
+        lines.append(
+            "These are installed but none of them supports this device. "
+            "Check `polyinfer info` for the supported device list."
+        )
+    else:
+        lines.append("No backends are available.")
+
+    unavailable = get_unavailable_backends()
+    if unavailable:
+        lines.append("")
+        lines.append("Unavailable backends:")
+        lines.extend(f"  - {name}: {reason}" for name, reason in unavailable.items())
+
+    if not available:
+        lines.append("")
+        lines.append("Install one with, for example: pip install polyinfer[cpu]")
+
+    return "\n".join(lines)
 
 
 def get_all_backends() -> dict[str, Backend]:

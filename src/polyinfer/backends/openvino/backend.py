@@ -3,11 +3,12 @@
 import numpy as np
 
 from polyinfer._logging import get_logger
-from polyinfer.backends.base import Backend, CompiledModel
+from polyinfer.backends.base import Backend, CompiledModel, describe_import_error
 
 _logger = get_logger("backends.openvino")
 
 # Check if OpenVINO is available
+IMPORT_ERROR: str | None = None
 try:
     import openvino as ov
     from openvino import CompiledModel as OVCompiledModel
@@ -16,11 +17,16 @@ try:
 
     OPENVINO_AVAILABLE = True
     _logger.debug(f"OpenVINO {ov.__version__} available")
-except ImportError:
+except ImportError as e:
     OPENVINO_AVAILABLE = False
     ov = None
     Core = None
-    _logger.debug("OpenVINO not installed")
+    IMPORT_ERROR = describe_import_error(
+        e,
+        packages=("openvino",),
+        install_hint="pip install openvino",
+    )
+    _logger.debug(f"OpenVINO unavailable: {IMPORT_ERROR}")
 
 
 # Valid OpenVINO PERFORMANCE_HINT values, for the explicit `performance_hint`
@@ -189,6 +195,12 @@ class OpenVINOBackend(Backend):
 
     def is_available(self) -> bool:
         return OPENVINO_AVAILABLE
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        if OPENVINO_AVAILABLE:
+            return None
+        return IMPORT_ERROR or "not installed (pip install openvino)"
 
     def get_available_devices(self) -> list[str]:
         """Get raw OpenVINO device names."""

@@ -7,6 +7,37 @@ from typing import Any
 import numpy as np
 
 
+def describe_import_error(
+    error: ImportError,
+    *,
+    packages: tuple[str, ...],
+    install_hint: str,
+) -> str:
+    """Classify a backend import failure into an actionable message.
+
+    A missing dependency and a broken installation both surface as
+    ImportError, but they need different fixes. A ModuleNotFoundError naming
+    one of the backend's own top-level packages means it was never installed;
+    anything else (a failed DLL/shared-object initialization, a version
+    clash) means it is installed but unusable.
+
+    Args:
+        error: The ImportError raised while importing the backend.
+        packages: Top-level module names owned by this backend.
+        install_hint: Command that installs the backend.
+
+    Returns:
+        A human-readable reason string.
+    """
+    if isinstance(error, ModuleNotFoundError):
+        missing = (error.name or "").split(".")[0]
+        if missing in packages:
+            return f"not installed ({install_hint})"
+        # A dependency of the backend is missing, not the backend itself.
+        return f"installed but a dependency is missing: {error} ({install_hint})"
+    return f"installed but failed to import: {error}"
+
+
 class CompiledModel(ABC):
     """Abstract base class for compiled/loaded models.
 
@@ -159,6 +190,19 @@ class Backend(ABC):
     def is_available(self) -> bool:
         """Check if this backend is available (dependencies installed)."""
         ...
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        """Explain why this backend is unavailable, if it is.
+
+        Returns None when the backend is available. Otherwise returns the
+        underlying import error, which distinguishes "not installed" from
+        "installed but broken" (e.g. a DLL that fails to initialize). Without
+        this, both cases look identical to the user.
+        """
+        if self.is_available():
+            return None
+        return "not installed"
 
     @abstractmethod
     def load(
