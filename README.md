@@ -542,8 +542,11 @@ for name, target in VULKAN_TARGETS.items():
     print(f"{name}: {target.description}")
 
 # MLIR export for custom hardware
-mlir = pi.export_mlir("model.onnx", "model.mlir", load_content=True)
+mlir = pi.export_mlir("model.onnx", "model.mlir", load_content=True, opset_version=17)
 vmfb = pi.compile_mlir("model.mlir", device="vulkan", vulkan_target="rdna3")
+
+# Load the compiled artifact through the IREE backend (pi.load expects ONNX)
+model = pi.get_backend("iree").load_vmfb(vmfb, device="vulkan")
 ```
 
 **Supported Vulkan GPU Targets:**
