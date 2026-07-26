@@ -42,10 +42,16 @@ class TensorRTModel(CompiledModel):
         engine: "trt.ICudaEngine",
         context: "trt.IExecutionContext",
         device_id: int = 0,
+        runtime: "trt.Runtime | None" = None,
     ):
         self._engine = engine
         self._context = context
         self._device_id = device_id
+        # TensorRT requires the Runtime that deserialized an engine to outlive
+        # that engine. It was previously a local variable in _build_engine /
+        # _load_engine and became garbage collectible as soon as they
+        # returned, leaving the engine with a dangling owner.
+        self._runtime = runtime
 
         # Get input/output info
         self._input_names = []
@@ -201,10 +207,20 @@ class TensorRTModel(CompiledModel):
             self._context.set_tensor_address(name, ptr)
 
         # Execute
-        self._context.execute_async_v3(self._stream)
+        if not self._context.execute_async_v3(self._stream):
+            raise RuntimeError("TensorRT execute_async_v3 failed to enqueue inference")
 
-        # Copy outputs to host
-        outputs = []
+        # Enqueue the device-to-host copies, then synchronize once before
+        # reading any of them.
+        #
+        # This loop previously called .copy() on each host buffer immediately
+        # after enqueueing its cudaMemcpyAsync, with the stream sync only
+        # afterwards - reading buffers whose transfers had not been waited on.
+        # It happened not to corrupt data only because a D2H async copy into
+        # *pageable* memory blocks until complete, which also meant the async
+        # path was fully serialized and bought nothing. Reading after an
+        # explicit sync is correct by contract and stays correct if these
+        # buffers ever become pinned.
         for name in self._output_names:
             cudart.cudaMemcpyAsync(
                 self._h_outputs[name].ctypes.data,
@@ -213,10 +229,14 @@ class TensorRTModel(CompiledModel):
                 cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost,
                 self._stream,
             )
-            outputs.append(self._h_outputs[name].copy())
 
-        # Synchronize
-        cudart.cudaStreamSynchronize(self._stream)
+        err = cudart.cudaStreamSynchronize(self._stream)
+        if isinstance(err, tuple):  # cuda-python returns (error,) or (error, value)
+            err = err[0]
+        if err != cudart.cudaError_t.cudaSuccess:
+            raise RuntimeError(f"CUDA stream synchronization failed: {err}")
+
+        outputs = [self._h_outputs[name].copy() for name in self._output_names]
 
         if len(outputs) == 1:
             result: np.ndarray = outputs[0]
@@ -224,13 +244,23 @@ class TensorRTModel(CompiledModel):
         return tuple(outputs)
 
     def __del__(self):
-        """Clean up CUDA resources."""
-        if hasattr(self, "_stream"):
-            cudart.cudaStreamDestroy(self._stream)
-        for ptr in getattr(self, "_d_inputs", {}).values():
-            cudart.cudaFree(ptr)
-        for ptr in getattr(self, "_d_outputs", {}).values():
-            cudart.cudaFree(ptr)
+        """Clean up CUDA resources.
+
+        Runs during interpreter shutdown, when module globals may already be
+        torn down, so every step is guarded: a raised exception here would be
+        printed and ignored, and could mask the real cause of a crash.
+        """
+        if cudart is None:  # Module already finalized.
+            return
+        try:
+            if getattr(self, "_stream", None) is not None:
+                cudart.cudaStreamDestroy(self._stream)
+            for ptr in getattr(self, "_d_inputs", {}).values():
+                cudart.cudaFree(ptr)
+            for ptr in getattr(self, "_d_outputs", {}).values():
+                cudart.cudaFree(ptr)
+        except Exception:  # pragma: no cover - shutdown-only path
+            pass
 
 
 class TensorRTBackend(Backend):
@@ -238,6 +268,7 @@ class TensorRTBackend(Backend):
 
     def __init__(self):
         self._logger = None
+        self._runtime = None
 
     @property
     def logger(self):
@@ -245,6 +276,17 @@ class TensorRTBackend(Backend):
         if self._logger is None and TENSORRT_AVAILABLE:
             self._logger = trt.Logger(trt.Logger.WARNING)
         return self._logger
+
+    @property
+    def runtime(self):
+        """Lazy-initialize a long-lived TensorRT Runtime.
+
+        Held on the backend rather than created per call, because TensorRT
+        requires the Runtime that deserialized an engine to outlive it.
+        """
+        if self._runtime is None and TENSORRT_AVAILABLE:
+            self._runtime = trt.Runtime(self.logger)
+        return self._runtime
 
     @property
     def name(self) -> str:
@@ -375,7 +417,7 @@ class TensorRTBackend(Backend):
         context = engine.create_execution_context()
         _logger.info("TensorRT engine built and ready")
 
-        return TensorRTModel(engine, context, device_id)
+        return TensorRTModel(engine, context, device_id, runtime=self.runtime)
 
     def _build_engine(
         self,
@@ -387,7 +429,16 @@ class TensorRTBackend(Backend):
         All options are passed via kwargs from load().
         """
         builder = trt.Builder(self.logger)
-        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+
+        # EXPLICIT_BATCH was deprecated in TensorRT 10 and removed in 11,
+        # where explicit batch is the only supported mode and create_network()
+        # takes no flag. Requiring the flag unconditionally raised
+        # AttributeError on every TensorRT >= 11, despite pyproject declaring
+        # support for tensorrt-cu12 >= 10.0.
+        network_flags = 0
+        if hasattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH"):
+            network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+
         network = builder.create_network(network_flags)
         parser = trt.OnnxParser(network, self.logger)
 
@@ -537,9 +588,12 @@ class TensorRTBackend(Backend):
             with open(timing_cache_path, "wb") as f:
                 f.write(serialized_cache)
 
-        # Deserialize
-        runtime = trt.Runtime(self.logger)
-        return runtime.deserialize_cuda_engine(engine_bytes)
+        # Deserialize using the backend's long-lived runtime. Using a local
+        # here would let the runtime be collected while the engine is alive.
+        engine = self.runtime.deserialize_cuda_engine(engine_bytes)
+        if engine is None:
+            raise RuntimeError("Failed to deserialize the built TensorRT engine")
+        return engine
 
     def _save_engine(self, engine: "trt.ICudaEngine", path: Path) -> None:
         """Save engine to file."""
@@ -550,7 +604,18 @@ class TensorRTBackend(Backend):
     def _load_engine(self, path: Path, device_id: int) -> TensorRTModel:
         """Load engine from cache."""
         with open(path, "rb") as f:
-            runtime = trt.Runtime(self.logger)
-            engine = runtime.deserialize_cuda_engine(f.read())
-            context = engine.create_execution_context()
-            return TensorRTModel(engine, context, device_id)
+            engine_bytes = f.read()
+
+        engine = self.runtime.deserialize_cuda_engine(engine_bytes)
+        if engine is None:
+            raise RuntimeError(
+                f"Failed to deserialize TensorRT engine from {path}.\n"
+                "The cache may be stale or built for a different TensorRT "
+                "version or GPU architecture. Delete it, or pass "
+                "force_rebuild=True to rebuild."
+            )
+
+        context = engine.create_execution_context()
+        # Pass the runtime through so it outlives the engine even if the
+        # backend instance is discarded.
+        return TensorRTModel(engine, context, device_id, runtime=self.runtime)
