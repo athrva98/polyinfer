@@ -24,7 +24,10 @@ Basic usage:
     mlir = pi.export_mlir("model.onnx", "model.mlir")
 """
 
-__version__ = "0.1.0"
+# Single source of truth for the package version. `pyproject.toml` declares
+# `dynamic = ["version"]` and hatchling reads the value from this assignment,
+# so this is the only place the version needs to be updated.
+__version__ = "0.2.0"
 
 # Auto-setup NVIDIA libraries BEFORE importing anything else
 # This ensures CUDA, cuDNN, TensorRT DLLs are findable
