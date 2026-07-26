@@ -13,7 +13,7 @@ Unified ML inference across multiple backends.
 
 ### Installation
 
-**From PyPI** (coming soon):
+**From PyPI**:
 ```bash
 pip install polyinfer[nvidia]   # NVIDIA GPU (CUDA + cuDNN via onnxruntime-gpu)
 pip install polyinfer[intel]    # Intel CPU/GPU/NPU
@@ -45,8 +45,13 @@ pip install -e ".[nvidia]"      # Or any of the extras above
 import polyinfer as pi
 
 # List available backends and devices
-print(pi.list_backends())  # ['onnxruntime', 'openvino']
-print(pi.list_devices())   # [cpu, cuda, tensorrt, ...]
+print(pi.list_backends())                      # ['onnxruntime', 'openvino']
+print([d.name for d in pi.list_devices()])     # ['cpu', 'cuda', 'tensorrt']
+
+# list_devices() returns DeviceInfo objects, so print the names for a
+# readable list. If a backend you expected is missing, ask why:
+print(pi.backend_errors())
+# {'openvino': 'not installed (pip install openvino)'}
 
 # Load model - auto-selects fastest backend
 model = pi.load("model.onnx", device="cpu")        # Uses OpenVINO (fastest for CPU)
@@ -313,8 +318,8 @@ python -c "import polyinfer as pi; print(pi.list_devices())"
 
 # Verify installation
 import polyinfer as pi
-print(pi.list_devices())
-# Output: [cpu, cuda, tensorrt, vulkan]
+print([d.name for d in pi.list_devices()])
+# Output: ['cpu', 'cuda', 'tensorrt', 'vulkan']
 
 # TensorRT works out of the box on Colab!
 model = pi.load("model.onnx", device="tensorrt")  # 638 FPS on ResNet18!
@@ -857,6 +862,21 @@ print("Backends:", pi.list_backends())
 print("Devices:")
 for d in pi.list_devices():
     print(f"  {d.name}: {d.backends}")
+
+# If a backend is missing, this says why. It distinguishes "never installed"
+# from "installed but the native library failed to load", which need
+# different fixes.
+for name, reason in pi.backend_errors().items():
+    print(f"  {name}: {reason}")
+```
+
+Example output when a package is present but broken:
+
+```
+  onnxruntime: installed but failed to import: DLL load failed while importing
+               onnxruntime_pybind11_state: A dynamic link library (DLL)
+               initialization routine failed.
+  openvino: not installed (pip install openvino)
 ```
 
 #### Check NVIDIA Library Detection

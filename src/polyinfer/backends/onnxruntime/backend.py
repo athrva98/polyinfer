@@ -247,7 +247,8 @@ class ONNXRuntimeBackend(Backend):
                 Session options:
                     providers (list): Explicit list of providers to try
                     provider_options (list[dict]): Provider-specific options (parallel to providers)
-                    graph_optimization_level (int): 0=disable, 1=basic, 2=extended, 3=all. Default: 3
+                    graph_optimization_level (int): 0=disable, 1=basic,
+                        2=extended, anything else=all. Default: all.
                     intra_op_num_threads (int): Threads for intra-op parallelism
                     inter_op_num_threads (int): Threads for inter-op parallelism
                     enable_mem_pattern (bool): Enable memory pattern optimization. Default: True
