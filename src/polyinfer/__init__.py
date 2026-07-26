@@ -51,6 +51,18 @@ from polyinfer.discovery import (
     list_backends,
     list_devices,
 )
+from polyinfer.exceptions import (
+    BackendError,
+    BackendNotAvailableError,
+    BackendNotFoundError,
+    CompilationError,
+    DeviceNotSupportedError,
+    InferenceError,
+    InvalidInputError,
+    ModelLoadError,
+    PolyInferError,
+    QuantizationError,
+)
 from polyinfer.mlir import MLIROutput, compile_mlir, export_mlir
 from polyinfer.model import Model, load
 from polyinfer.nvidia_setup import fix_onnxruntime_conflict, get_nvidia_info, setup_tensorrt_paths
@@ -101,6 +113,17 @@ __all__ = [
     "fix_onnxruntime_conflict",
     "get_nvidia_info",
     "setup_tensorrt_paths",
+    # Exceptions
+    "PolyInferError",
+    "BackendError",
+    "BackendNotFoundError",
+    "BackendNotAvailableError",
+    "DeviceNotSupportedError",
+    "ModelLoadError",
+    "CompilationError",
+    "InferenceError",
+    "InvalidInputError",
+    "QuantizationError",
     # Logging
     "get_logger",
     "set_log_level",

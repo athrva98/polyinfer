@@ -3,7 +3,13 @@
 import numpy as np
 
 from polyinfer._logging import get_logger
-from polyinfer.backends.base import Backend, CompiledModel, describe_import_error
+from polyinfer.backends.base import (
+    Backend,
+    CompiledModel,
+    describe_import_error,
+    translate_errors,
+)
+from polyinfer.exceptions import BackendNotAvailableError, InvalidInputError, ModelLoadError
 
 _logger = get_logger("backends.openvino")
 
@@ -107,19 +113,20 @@ class OpenVINOModel(CompiledModel):
         """Run inference."""
         self._check_input_count(inputs)
 
-        # Set inputs (must wrap in OVTensor)
-        for i, data in enumerate(inputs):
-            tensor = OVTensor(np.ascontiguousarray(data))
-            self._infer_request.set_input_tensor(i, tensor)
+        with translate_errors(self.backend_name):
+            # Set inputs (must wrap in OVTensor)
+            for i, data in enumerate(inputs):
+                tensor = OVTensor(np.ascontiguousarray(data))
+                self._infer_request.set_input_tensor(i, tensor)
 
-        # Run inference
-        self._infer_request.infer()
+            # Run inference
+            self._infer_request.infer()
 
-        # Get outputs
-        outputs = []
-        for i in range(len(self._output_names)):
-            output_tensor = self._infer_request.get_output_tensor(i)
-            outputs.append(output_tensor.data.copy())
+            # Get outputs
+            outputs = []
+            for i in range(len(self._output_names)):
+                output_tensor = self._infer_request.get_output_tensor(i)
+                outputs.append(output_tensor.data.copy())
 
         if len(outputs) == 1:
             result: np.ndarray = outputs[0]
@@ -130,25 +137,26 @@ class OpenVINOModel(CompiledModel):
         """Run inference with named inputs/outputs."""
         missing = [name for name in self._input_names if name not in inputs]
         if missing:
-            raise ValueError(
+            raise InvalidInputError(
                 f"Missing required input(s) for {self.backend_name}: {missing}\n"
                 f"Expected: {self._input_names}\n"
                 f"Got: {sorted(inputs)}"
             )
 
-        # Set inputs by name
-        for name, data in inputs.items():
-            tensor = OVTensor(np.ascontiguousarray(data))
-            self._infer_request.set_tensor(name, tensor)
+        with translate_errors(self.backend_name):
+            # Set inputs by name
+            for name, data in inputs.items():
+                tensor = OVTensor(np.ascontiguousarray(data))
+                self._infer_request.set_tensor(name, tensor)
 
-        # Run inference
-        self._infer_request.infer()
+            # Run inference
+            self._infer_request.infer()
 
-        # Get outputs by name
-        results = {}
-        for name in self._output_names:
-            output_tensor = self._infer_request.get_tensor(name)
-            results[name] = output_tensor.data.copy()
+            # Get outputs by name
+            results = {}
+            for name in self._output_names:
+                output_tensor = self._infer_request.get_tensor(name)
+                results[name] = output_tensor.data.copy()
 
         return results
 
@@ -248,7 +256,7 @@ class OpenVINOBackend(Backend):
         """
         if not OPENVINO_AVAILABLE:
             _logger.error("OpenVINO not installed")
-            raise RuntimeError("openvino not installed. Run: pip install openvino")
+            raise BackendNotAvailableError(f"openvino is not available: {self.unavailable_reason}")
 
         _logger.debug(f"Loading model: {model_path}")
 
@@ -272,7 +280,10 @@ class OpenVINOBackend(Backend):
 
         # Read the model
         _logger.debug("Reading model...")
-        model = self.core.read_model(model_path)
+        try:
+            model = self.core.read_model(model_path)
+        except Exception as e:
+            raise ModelLoadError(f"OpenVINO could not read {model_path}: {e}") from e
 
         # Configure properties
         config = {}
@@ -313,7 +324,12 @@ class OpenVINOBackend(Backend):
 
         # Compile the model
         _logger.debug(f"Compiling model with config: {config}")
-        compiled = self.core.compile_model(model, ov_device, config)
+        try:
+            compiled = self.core.compile_model(model, ov_device, config)
+        except Exception as e:
+            raise ModelLoadError(
+                f"OpenVINO failed to compile {model_path} for device '{ov_device}': {e}"
+            ) from e
 
         _logger.info(f"Model compiled on {ov_device}")
 

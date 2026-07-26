@@ -24,6 +24,8 @@ Example:
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from polyinfer.exceptions import BackendNotAvailableError
+
 if TYPE_CHECKING:
     from polyinfer.backends.iree.backend import MLIROutput
 
@@ -55,7 +57,8 @@ def export_mlir(
         MLIROutput containing path and optionally content
 
     Raises:
-        RuntimeError: If IREE is not available or conversion fails
+        BackendNotAvailableError: If IREE is not available. Also a RuntimeError.
+        CompilationError: If conversion fails. Also a RuntimeError.
         FileNotFoundError: If the model file doesn't exist
 
     Example:
@@ -85,7 +88,7 @@ def export_mlir(
     backend = IREEBackend()
 
     if not backend.is_available():
-        raise RuntimeError(
+        raise BackendNotAvailableError(
             f"IREE backend is not available: {backend.unavailable_reason}\n"
             "Install with: pip install iree-base-compiler iree-base-runtime"
         )
@@ -129,7 +132,8 @@ def compile_mlir(
         Path to compiled VMFB file
 
     Raises:
-        RuntimeError: If IREE is not available or compilation fails
+        BackendNotAvailableError: If IREE is not available. Also a RuntimeError.
+        CompilationError: If compilation fails. Also a RuntimeError.
         FileNotFoundError: If the MLIR file doesn't exist
 
     Example:
@@ -160,7 +164,7 @@ def compile_mlir(
     backend = IREEBackend()
 
     if not backend.is_available():
-        raise RuntimeError(
+        raise BackendNotAvailableError(
             f"IREE backend is not available: {backend.unavailable_reason}\n"
             "Install with: pip install iree-base-compiler iree-base-runtime"
         )

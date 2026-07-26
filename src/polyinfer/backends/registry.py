@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from polyinfer._logging import get_logger
 from polyinfer.backends.base import Backend
+from polyinfer.exceptions import BackendNotAvailableError, BackendNotFoundError
 
 _logger = get_logger("backends.registry")
 
@@ -62,19 +63,21 @@ def get_backend(name: str) -> Backend:
         Backend instance
 
     Raises:
-        KeyError: If backend not found
-        RuntimeError: If backend not available
+        BackendNotFoundError: If no backend is registered under this name.
+            Also a KeyError.
+        BackendNotAvailableError: If the backend is registered but its
+            dependencies are missing or broken. Also a RuntimeError.
     """
     if name not in _backends:
         available = list(_backends.keys())
         _logger.error(f"Backend '{name}' not found. Available: {available}")
-        raise KeyError(f"Backend '{name}' not found. Available: {available}")
+        raise BackendNotFoundError(f"Backend '{name}' not found. Available: {available}")
 
     info = _backends[name]
     if not info.is_available():
         reason = info.unavailable_reason()
         _logger.error(f"Backend '{name}' is not available: {reason}")
-        raise RuntimeError(
+        raise BackendNotAvailableError(
             f"Backend '{name}' is not available: {reason}\n"
             f"Install it with: pip install polyinfer[{name}]"
         )
@@ -135,7 +138,7 @@ def get_best_backend(device: str) -> Backend:
     """
     backends = get_backends_for_device(device)
     if not backends:
-        raise RuntimeError(_no_backend_message(device))
+        raise BackendNotAvailableError(_no_backend_message(device))
     return backends[0]
 
 

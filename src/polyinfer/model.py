@@ -9,6 +9,7 @@ from polyinfer._logging import get_logger
 from polyinfer.backends.base import CompiledModel
 from polyinfer.config import InferenceConfig
 from polyinfer.discovery import get_backend, select_backend
+from polyinfer.exceptions import DeviceNotSupportedError, ModelLoadError, PolyInferError
 
 _logger = get_logger("model")
 
@@ -80,7 +81,7 @@ class Model:
             self._backend = get_backend(backend)
             if not self._backend.supports_device(device):
                 _logger.error(f"Backend '{backend}' does not support device '{device}'")
-                raise ValueError(
+                raise DeviceNotSupportedError(
                     f"Backend '{backend}' does not support device '{device}'. "
                     f"Supported: {self._backend.supported_devices}"
                 )
@@ -92,13 +93,24 @@ class Model:
             f"Selected backend: {self._backend.name} (priority: {self._backend.priority})"
         )
 
-        # Load the model
+        # Load the model. Any backend-specific failure becomes a
+        # ModelLoadError so callers can handle load failures uniformly; the
+        # original exception stays available as __cause__.
         _logger.debug(f"Loading with device: {device}")
-        self._model: CompiledModel = self._backend.load(
-            str(self.model_path),
-            device=device,
-            **kwargs,
-        )
+        try:
+            self._model: CompiledModel = self._backend.load(
+                str(self.model_path),
+                device=device,
+                **kwargs,
+            )
+        except (PolyInferError, FileNotFoundError):
+            raise
+        except Exception as e:
+            raise ModelLoadError(
+                f"Failed to load {self.model_path.name} with backend "
+                f"'{self._backend.name}' on device '{device}': "
+                f"{type(e).__name__}: {e}"
+            ) from e
 
         _logger.info(f"Model loaded: {self.model_path.name} on {self._model.backend_name}")
 
@@ -178,6 +190,10 @@ class Model:
 
         Returns:
             Output array(s)
+
+        Raises:
+            InvalidInputError: If the inputs do not match the model.
+            InferenceError: If the backend fails during inference.
         """
         return self._model(*inputs)
 
@@ -189,6 +205,10 @@ class Model:
 
         Returns:
             Dictionary mapping output names to numpy arrays
+
+        Raises:
+            InvalidInputError: If a required input is missing.
+            InferenceError: If the backend fails during inference.
         """
         return self._model.run(inputs)
 

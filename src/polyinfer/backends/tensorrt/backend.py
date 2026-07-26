@@ -5,7 +5,17 @@ from pathlib import Path
 import numpy as np
 
 from polyinfer._logging import get_logger
-from polyinfer.backends.base import Backend, CompiledModel, describe_import_error
+from polyinfer.backends.base import (
+    Backend,
+    CompiledModel,
+    describe_import_error,
+)
+from polyinfer.exceptions import (
+    BackendNotAvailableError,
+    CompilationError,
+    InferenceError,
+    ModelLoadError,
+)
 
 _logger = get_logger("backends.tensorrt")
 
@@ -147,7 +157,7 @@ class TensorRTModel(CompiledModel):
 
             err, ptr = cudart.cudaMalloc(size)
             if err != cudart.cudaError_t.cudaSuccess:
-                raise RuntimeError(f"Failed to allocate CUDA memory for {name}: {err}")
+                raise InferenceError(f"Failed to allocate CUDA memory for {name}: {err}")
             self._d_inputs[name] = ptr
             self._allocated_shapes[name] = shape
 
@@ -172,7 +182,7 @@ class TensorRTModel(CompiledModel):
 
             err, ptr = cudart.cudaMalloc(size)
             if err != cudart.cudaError_t.cudaSuccess:
-                raise RuntimeError(f"Failed to allocate CUDA memory for {name}: {err}")
+                raise InferenceError(f"Failed to allocate CUDA memory for {name}: {err}")
             self._d_outputs[name] = ptr
             self._h_outputs[name] = np.empty(shape, dtype=dtype)
             self._allocated_shapes[name] = shape
@@ -208,7 +218,7 @@ class TensorRTModel(CompiledModel):
 
         # Execute
         if not self._context.execute_async_v3(self._stream):
-            raise RuntimeError("TensorRT execute_async_v3 failed to enqueue inference")
+            raise InferenceError("TensorRT execute_async_v3 failed to enqueue inference")
 
         # Enqueue the device-to-host copies, then synchronize once before
         # reading any of them.
@@ -234,7 +244,7 @@ class TensorRTModel(CompiledModel):
         if isinstance(err, tuple):  # cuda-python returns (error,) or (error, value)
             err = err[0]
         if err != cudart.cudaError_t.cudaSuccess:
-            raise RuntimeError(f"CUDA stream synchronization failed: {err}")
+            raise InferenceError(f"CUDA stream synchronization failed: {err}")
 
         outputs = [self._h_outputs[name].copy() for name in self._output_names]
 
@@ -382,9 +392,7 @@ class TensorRTBackend(Backend):
         """
         if not TENSORRT_AVAILABLE:
             _logger.error("TensorRT not installed")
-            raise RuntimeError(
-                "TensorRT not installed. Install CUDA, TensorRT, and run: pip install tensorrt"
-            )
+            raise BackendNotAvailableError(f"TensorRT is not available: {self.unavailable_reason}")
 
         _logger.debug(f"Loading model: {model_path}")
 
@@ -448,7 +456,7 @@ class TensorRTBackend(Backend):
         if not parser.parse_from_file(onnx_path_str):
             errors = [parser.get_error(i) for i in range(parser.num_errors)]
             _logger.error(f"ONNX parse failed: {errors}")
-            raise RuntimeError(f"ONNX parse failed: {errors}")
+            raise CompilationError(f"ONNX parse failed for {onnx_path}: {errors}")
 
         # Build config
         config = builder.create_builder_config()
@@ -580,7 +588,10 @@ class TensorRTBackend(Backend):
         engine_bytes = builder.build_serialized_network(network, config)
         if engine_bytes is None:
             _logger.error("Failed to build TensorRT engine")
-            raise RuntimeError("Failed to build TensorRT engine")
+            raise CompilationError(
+                f"Failed to build TensorRT engine from {onnx_path}. "
+                "Enable debug logging for the TensorRT builder output."
+            )
 
         # Save timing cache if used
         if timing_cache is not None and timing_cache_path:
@@ -592,7 +603,7 @@ class TensorRTBackend(Backend):
         # here would let the runtime be collected while the engine is alive.
         engine = self.runtime.deserialize_cuda_engine(engine_bytes)
         if engine is None:
-            raise RuntimeError("Failed to deserialize the built TensorRT engine")
+            raise CompilationError("Failed to deserialize the built TensorRT engine")
         return engine
 
     def _save_engine(self, engine: "trt.ICudaEngine", path: Path) -> None:
@@ -608,7 +619,7 @@ class TensorRTBackend(Backend):
 
         engine = self.runtime.deserialize_cuda_engine(engine_bytes)
         if engine is None:
-            raise RuntimeError(
+            raise ModelLoadError(
                 f"Failed to deserialize TensorRT engine from {path}.\n"
                 "The cache may be stale or built for a different TensorRT "
                 "version or GPU architecture. Delete it, or pass "

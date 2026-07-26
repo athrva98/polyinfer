@@ -171,6 +171,48 @@ Calibration data may be a list of arrays, a list of dicts, an iterator, or a
 factory returning one. Iterators are materialized internally so that the
 multiple passes required by entropy and percentile calibration all see data.
 
+## Error Handling
+
+Every error PolyInfer raises derives from `PolyInferError`, so one handler
+works across all backends:
+
+```python
+import polyinfer as pi
+
+try:
+    model = pi.load("model.onnx", device="cuda")
+    output = model(input_data)
+except pi.InvalidInputError as e:
+    print("Bad input:", e)
+except pi.ModelLoadError as e:
+    print("Could not load:", e)
+except pi.PolyInferError as e:
+    print("Inference failed:", e)
+    print("Backend detail:", e.__cause__)   # original backend exception
+```
+
+| Exception | Raised when | Also a |
+|-----------|-------------|--------|
+| `PolyInferError` | base class for all of the below | `Exception` |
+| `BackendNotFoundError` | no backend registered under that name | `KeyError` |
+| `BackendNotAvailableError` | backend registered but not installed/importable | `RuntimeError` |
+| `DeviceNotSupportedError` | backend does not support the device | `ValueError` |
+| `ModelLoadError` | model could not be loaded or compiled | `RuntimeError` |
+| `CompilationError` | AOT compilation failed (IREE, TensorRT engine build) | `ModelLoadError` |
+| `InferenceError` | backend failed during inference | `RuntimeError` |
+| `InvalidInputError` | wrong input count, names, shapes, or dtypes | `InferenceError`, `ValueError` |
+| `QuantizationError` | quantization failed or is unsupported | `RuntimeError` |
+
+Each keeps the builtin base it previously raised, so existing
+`except RuntimeError` / `except ValueError` code continues to work. The
+originating backend exception is always preserved as `__cause__`.
+
+This matters because backends do not agree on exception types: ONNX
+Runtime's `InvalidArgument` derives directly from `Exception`, so
+`except (ValueError, RuntimeError)` never caught an ONNX Runtime shape
+error, while the same failure on TensorRT or OpenVINO surfaced as a
+`RuntimeError`.
+
 ## Performance
 
 ### YOLOv8n @ 640x640 (RTX 5060)

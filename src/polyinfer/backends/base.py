@@ -2,9 +2,41 @@
 
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
+
+from polyinfer.exceptions import InferenceError, InvalidInputError, PolyInferError
+
+
+@contextmanager
+def translate_errors(backend_name: str, stage: str = "inference") -> Iterator[None]:
+    """Convert a backend's native exception into a PolyInfer one.
+
+    Each runtime raises its own type - ONNX Runtime's InvalidArgument derives
+    straight from Exception, not RuntimeError - so without this, portable
+    error handling across backends is impossible. The original exception is
+    preserved as __cause__.
+
+    PolyInfer errors pass through untouched, as do KeyboardInterrupt and
+    SystemExit, which must never be swallowed.
+
+    Args:
+        backend_name: Name used in the error message.
+        stage: What was being attempted, e.g. "inference".
+    """
+    try:
+        yield
+    except PolyInferError:
+        raise
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as e:
+        raise InferenceError(
+            f"{stage.capitalize()} failed on {backend_name}: {type(e).__name__}: {e}"
+        ) from e
 
 
 def describe_import_error(
@@ -97,13 +129,14 @@ class CompiledModel(ABC):
         downstream error or a wrong result.
 
         Raises:
-            ValueError: If the count does not match the model's inputs.
+            InvalidInputError: If the count does not match the model's
+                inputs. Also a ValueError, for backwards compatibility.
         """
         names = self.input_names
         if not names or len(inputs) == len(names):
             return
 
-        raise ValueError(
+        raise InvalidInputError(
             f"{self.backend_name} expects {len(names)} input(s) but got {len(inputs)}.\n"
             f"Expected inputs, in order: {names}\n"
             "Positional inputs are matched by position, so they must be passed "
@@ -121,12 +154,13 @@ class CompiledModel(ABC):
             Dictionary mapping output names to numpy arrays
 
         Raises:
-            ValueError: If any required input is missing.
+            InvalidInputError: If any required input is missing. Also a
+                ValueError, for backwards compatibility.
         """
         names = self.input_names
         missing = [name for name in names if name not in inputs]
         if missing:
-            raise ValueError(
+            raise InvalidInputError(
                 f"Missing required input(s) for {self.backend_name}: {missing}\n"
                 f"Expected: {names}\n"
                 f"Got: {sorted(inputs)}"

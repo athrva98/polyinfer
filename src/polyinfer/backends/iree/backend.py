@@ -15,6 +15,12 @@ import numpy as np
 
 from polyinfer._logging import get_logger
 from polyinfer.backends.base import Backend, CompiledModel, describe_import_error
+from polyinfer.exceptions import (
+    BackendNotAvailableError,
+    CompilationError,
+    InferenceError,
+    ModelLoadError,
+)
 
 _logger = get_logger("backends.iree")
 
@@ -427,8 +433,12 @@ def compilation_cache_key(
 # =============================================================================
 
 
-class IREECompilationError(RuntimeError):
-    """IREE compilation failed with actionable error message."""
+class IREECompilationError(CompilationError):
+    """IREE compilation failed with actionable error message.
+
+    Part of the PolyInfer hierarchy via CompilationError -> ModelLoadError,
+    and still a RuntimeError, so existing handlers keep working.
+    """
 
     def __init__(
         self,
@@ -532,7 +542,7 @@ class IREEModel(CompiledModel):
         try:
             self._module = iree_rt.load_vm_flatbuffer_file(str(vmfb_path), driver=driver)
         except Exception as e:
-            raise RuntimeError(
+            raise ModelLoadError(
                 f"Failed to load VMFB file '{vmfb_path}' with driver '{driver}': {e}\n"
                 f"Ensure the VMFB was compiled for the correct target."
             ) from e
@@ -552,7 +562,7 @@ class IREEModel(CompiledModel):
         if self._func is None:
             # List available functions for debugging
             available = list(self._module.keys()) if hasattr(self._module, "keys") else []
-            raise RuntimeError(
+            raise ModelLoadError(
                 f"Could not find inference function in IREE module.\n"
                 f"Tried: {self.FUNC_NAMES}\n"
                 f"Available functions: {available}"
@@ -609,12 +619,12 @@ class IREEModel(CompiledModel):
 
         # Run inference
         if self._func is None:
-            raise RuntimeError("Model function not initialized")
+            raise InferenceError("Model function not initialized")
 
         try:
             outputs = self._func(*inputs)
         except Exception as e:
-            raise RuntimeError(
+            raise InferenceError(
                 f"IREE inference failed: {e}\n"
                 f"Input shapes: {[inp.shape for inp in inputs]}\n"
                 f"Function: {self._func_name}"
@@ -781,7 +791,7 @@ class IREEBackend(Backend):
             ...                       vulkan_target="rtx4090", opt_level=3)
         """
         if not IREE_RUNTIME_AVAILABLE:
-            raise RuntimeError(
+            raise BackendNotAvailableError(
                 "IREE Runtime not installed.\nInstall with: pip install iree-base-runtime"
             )
 
@@ -879,7 +889,7 @@ class IREEBackend(Backend):
 
         iree_import = _get_iree_import_onnx()
         if not iree_import:
-            raise RuntimeError(
+            raise BackendNotAvailableError(
                 "iree-import-onnx not found.\nInstall with: pip install iree-base-compiler[onnx]"
             )
 
@@ -949,7 +959,7 @@ class IREEBackend(Backend):
 
         iree_compile = _get_iree_compile()
         if not iree_compile:
-            raise RuntimeError(
+            raise BackendNotAvailableError(
                 "iree-compile not found.\nInstall with: pip install iree-base-compiler"
             )
 
@@ -982,7 +992,7 @@ class IREEBackend(Backend):
             Loaded IREE model ready for inference
         """
         if not IREE_RUNTIME_AVAILABLE:
-            raise RuntimeError(
+            raise BackendNotAvailableError(
                 "IREE Runtime not installed.\nInstall with: pip install iree-base-runtime"
             )
 
@@ -1001,12 +1011,12 @@ class IREEBackend(Backend):
         iree_compile = _get_iree_compile()
 
         if not iree_import:
-            raise RuntimeError(
+            raise BackendNotAvailableError(
                 "iree-import-onnx not found.\nInstall with: pip install iree-base-compiler[onnx]"
             )
 
         if not iree_compile:
-            raise RuntimeError(
+            raise BackendNotAvailableError(
                 "iree-compile not found.\nInstall with: pip install iree-base-compiler"
             )
 
