@@ -173,16 +173,18 @@ class TensorRTModel(CompiledModel):
 
     def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
+        self._check_input_count(inputs)
+
         # For dynamic shapes, ensure buffers are allocated for current input shapes
         if self._has_dynamic_shapes:
             input_shapes = {
                 name: tuple(data.shape)
-                for name, data in zip(self._input_names, inputs, strict=False)
+                for name, data in zip(self._input_names, inputs, strict=True)
             }
             self._allocate_buffers(input_shapes)
 
         # Copy inputs to GPU
-        for name, data in zip(self._input_names, inputs, strict=False):
+        for name, data in zip(self._input_names, inputs, strict=True):
             data = np.ascontiguousarray(data)
             cudart.cudaMemcpyAsync(
                 self._d_inputs[name],

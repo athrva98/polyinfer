@@ -200,13 +200,16 @@ def benchmark_backend(
         # Load model
         model = pi.load(model_path, backend=backend, device=device)
 
-        # Prepare inputs (flatten dict to positional args)
-        inputs = list(input_data.values())
+        # Bind inputs by name, not by position. An LLM's ONNX graph declares
+        # input_ids, attention_mask, position_ids and a variable number of
+        # past_key_values entries in an order that need not match the order
+        # this dict was built in, and positional binding would silently pair
+        # tensors with the wrong inputs.
 
         # Warmup
         for _ in range(warmup):
             try:
-                _ = model(*inputs)
+                _ = model.run(input_data)
             except Exception:
                 return None
 
@@ -214,7 +217,7 @@ def benchmark_backend(
         times = []
         for _ in range(iterations):
             start = time.perf_counter()
-            _ = model(*inputs)
+            _ = model.run(input_data)
             end = time.perf_counter()
             times.append((end - start) * 1000)  # Convert to ms
 

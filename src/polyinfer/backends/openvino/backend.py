@@ -105,6 +105,8 @@ class OpenVINOModel(CompiledModel):
 
     def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
+        self._check_input_count(inputs)
+
         # Set inputs (must wrap in OVTensor)
         for i, data in enumerate(inputs):
             tensor = OVTensor(np.ascontiguousarray(data))
@@ -126,6 +128,14 @@ class OpenVINOModel(CompiledModel):
 
     def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Run inference with named inputs/outputs."""
+        missing = [name for name in self._input_names if name not in inputs]
+        if missing:
+            raise ValueError(
+                f"Missing required input(s) for {self.backend_name}: {missing}\n"
+                f"Expected: {self._input_names}\n"
+                f"Got: {sorted(inputs)}"
+            )
+
         # Set inputs by name
         for name, data in inputs.items():
             tensor = OVTensor(np.ascontiguousarray(data))

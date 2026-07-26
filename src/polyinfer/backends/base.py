@@ -88,6 +88,29 @@ class CompiledModel(ABC):
         """
         ...
 
+    def _check_input_count(self, inputs: tuple[np.ndarray, ...]) -> None:
+        """Validate the number of positional inputs against the model.
+
+        Positional inputs are bound to input names by position. Binding used
+        ``zip(..., strict=False)``, which silently dropped extras and left
+        missing inputs unbound, turning an arity mistake into a confusing
+        downstream error or a wrong result.
+
+        Raises:
+            ValueError: If the count does not match the model's inputs.
+        """
+        names = self.input_names
+        if not names or len(inputs) == len(names):
+            return
+
+        raise ValueError(
+            f"{self.backend_name} expects {len(names)} input(s) but got {len(inputs)}.\n"
+            f"Expected inputs, in order: {names}\n"
+            "Positional inputs are matched by position, so they must be passed "
+            "in the model's declared input order. Use model.run({name: array}) "
+            "to bind by name instead."
+        )
+
     def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Run inference with named inputs/outputs.
 
@@ -96,9 +119,21 @@ class CompiledModel(ABC):
 
         Returns:
             Dictionary mapping output names to numpy arrays
+
+        Raises:
+            ValueError: If any required input is missing.
         """
+        names = self.input_names
+        missing = [name for name in names if name not in inputs]
+        if missing:
+            raise ValueError(
+                f"Missing required input(s) for {self.backend_name}: {missing}\n"
+                f"Expected: {names}\n"
+                f"Got: {sorted(inputs)}"
+            )
+
         # Default implementation using positional call
-        input_arrays = [inputs[name] for name in self.input_names]
+        input_arrays = [inputs[name] for name in names]
         outputs = self(*input_arrays)
 
         if isinstance(outputs, np.ndarray):

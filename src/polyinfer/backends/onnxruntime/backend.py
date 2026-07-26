@@ -89,8 +89,10 @@ class ONNXRuntimeModel(CompiledModel):
 
     def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
+        self._check_input_count(inputs)
+
         # Build input dict
-        input_dict = {name: arr for name, arr in zip(self._input_names, inputs, strict=False)}
+        input_dict = dict(zip(self._input_names, inputs, strict=True))
 
         # Run inference
         outputs = self._session.run(None, input_dict)
@@ -102,8 +104,16 @@ class ONNXRuntimeModel(CompiledModel):
 
     def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Run inference with named inputs/outputs."""
+        missing = [name for name in self._input_names if name not in inputs]
+        if missing:
+            raise ValueError(
+                f"Missing required input(s) for {self.backend_name}: {missing}\n"
+                f"Expected: {self._input_names}\n"
+                f"Got: {sorted(inputs)}"
+            )
+
         outputs = self._session.run(None, inputs)
-        return dict(zip(self._output_names, outputs, strict=False))
+        return dict(zip(self._output_names, outputs, strict=True))
 
 
 def _verify_tensorrt_ep_works() -> bool:
