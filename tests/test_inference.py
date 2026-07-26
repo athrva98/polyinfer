@@ -163,18 +163,26 @@ class TestInputValidation:
     """Test input validation and error handling."""
 
     def test_wrong_shape(self, model_path):
-        """Wrong input shape should raise error."""
+        """Wrong input shape should raise error.
+
+        Backends raise heterogeneous exception types for this. ONNX Runtime's
+        InvalidArgument derives directly from Exception - not RuntimeError or
+        ValueError - so a narrow tuple here silently matched nothing. Catch
+        Exception and assert on the message instead.
+        """
         model = pi.load(model_path, device="cpu")
 
         wrong_input = np.random.rand(1, 3, 320, 320).astype(np.float32)
-        # Behavior depends on backend - some may resize, others error
-        # Just ensure it doesn't crash silently
+        # Behavior depends on backend - some may resize, others error.
+        # Just ensure it doesn't fail silently or return garbage.
         try:
             output = model(wrong_input)
-            # If it succeeds, output should still be valid
             assert output is not None
-        except (ValueError, RuntimeError):
-            pass  # Expected for strict backends
+        except Exception as e:
+            # Whatever the type, the message must identify the problem.
+            assert any(
+                word in str(e).lower() for word in ("shape", "dimension", "invalid", "size")
+            ), f"Unhelpful error for a shape mismatch: {e}"
 
     def test_wrong_dtype(self, model_path):
         """Wrong dtype should be handled."""
@@ -183,12 +191,15 @@ class TestInputValidation:
         # Int input instead of float
         int_input = np.random.randint(0, 255, (1, 3, 640, 640), dtype=np.uint8)
 
-        # Should either convert or raise clear error
+        # Should either convert or raise a clear error. See test_wrong_shape
+        # for why this catches Exception rather than a specific tuple.
         try:
             output = model(int_input)
             assert output is not None
-        except (ValueError, TypeError, RuntimeError):
-            pass  # Expected
+        except Exception as e:
+            assert any(word in str(e).lower() for word in ("type", "dtype", "invalid", "tensor")), (
+                f"Unhelpful error for a dtype mismatch: {e}"
+            )
 
     def test_non_contiguous(self, model_path):
         """Non-contiguous array should be handled."""

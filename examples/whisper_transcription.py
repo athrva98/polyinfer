@@ -67,6 +67,7 @@ def load_audio(audio_path: str, sr: int = SAMPLE_RATE) -> np.ndarray:
     """
     try:
         import librosa
+
         audio, _ = librosa.load(audio_path, sr=sr, mono=True)
         return audio.astype(np.float32)
     except ImportError:
@@ -195,8 +196,8 @@ def transcribe_with_transformers(
         Tuple of (transcription, inference_time_ms)
     """
     try:
-        from transformers import WhisperProcessor, pipeline
         from optimum.onnxruntime import ORTModelForSpeechSeq2Seq
+        from transformers import WhisperProcessor, pipeline
     except ImportError:
         print("Please install: pip install optimum[onnxruntime] transformers")
         raise
@@ -289,9 +290,9 @@ def benchmark_whisper(model_name: str, model_dir: str, audio_path: str | None = 
     if not encoder_path.exists():
         export_whisper_onnx(model_name, model_dir)
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"Whisper Encoder Benchmark: {model_name}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     # Prepare input
     if audio_path:
@@ -345,12 +346,14 @@ def benchmark_whisper(model_name: str, model_dir: str, audio_path: str | None = 
             mean_ms = np.mean(times)
             rtf = mean_ms / (CHUNK_LENGTH * 1000)  # Real-time factor
 
-            results.append({
-                "backend": model.backend_name,
-                "mean_ms": mean_ms,
-                "std_ms": np.std(times),
-                "rtf": rtf,
-            })
+            results.append(
+                {
+                    "backend": model.backend_name,
+                    "mean_ms": mean_ms,
+                    "std_ms": np.std(times),
+                    "rtf": rtf,
+                }
+            )
 
             print(f"  {model.backend_name:<30} {mean_ms:>8.2f}ms  (RTF: {rtf:.3f}x)")
 
@@ -362,9 +365,9 @@ def benchmark_whisper(model_name: str, model_dir: str, audio_path: str | None = 
     if results:
         results.sort(key=lambda x: x["mean_ms"])
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("RESULTS (sorted by speed)")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"{'Backend':<30} {'Latency':>10} {'RTF':>10} {'Speedup':>10}")
         print("-" * 70)
 
@@ -375,13 +378,11 @@ def benchmark_whisper(model_name: str, model_dir: str, audio_path: str | None = 
 
         print("-" * 70)
         print(f"\nFastest: {results[0]['backend']} ({results[0]['mean_ms']:.2f}ms)")
-        print(f"RTF < 1.0 means faster than real-time")
+        print("RTF < 1.0 means faster than real-time")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Whisper Audio Transcription with PolyInfer"
-    )
+    parser = argparse.ArgumentParser(description="Whisper Audio Transcription with PolyInfer")
     parser.add_argument(
         "--model",
         default="whisper-tiny",

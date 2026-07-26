@@ -153,8 +153,8 @@ def export_clip_onnx(model_name: str, output_dir: str) -> tuple[Path, Path]:
     print("This may take a few minutes...")
 
     try:
-        from transformers import CLIPModel, CLIPProcessor
         import torch
+        from transformers import CLIPModel, CLIPProcessor
     except ImportError as e:
         print(f"Missing dependency: {e}")
         print("Install with: pip install transformers torch")
@@ -170,7 +170,6 @@ def export_clip_onnx(model_name: str, output_dir: str) -> tuple[Path, Path]:
 
     # Export vision model
     print("Exporting vision model...")
-    vision_model = model.vision_model
 
     class VisionWrapper(torch.nn.Module):
         def __init__(self, vision_model, projection):
@@ -343,7 +342,7 @@ class CLIPInference:
         probs = self.similarity(image_path, texts)
 
         # Sort by probability
-        results = list(zip(class_names, probs))
+        results = list(zip(class_names, probs, strict=False))
         results.sort(key=lambda x: x[1], reverse=True)
 
         return results
@@ -396,7 +395,7 @@ def run_classification(args):
     print("\nPredictions:")
     for name, prob in results:
         bar = "█" * int(prob * 30)
-        print(f"  {name:20s} {prob*100:5.1f}% {bar}")
+        print(f"  {name:20s} {prob * 100:5.1f}% {bar}")
 
     print(f"\nInference time: {elapsed:.2f}ms")
 
@@ -408,9 +407,9 @@ def benchmark_clip(model_name: str, model_dir: str):
     if not (model_path / "vision_model.onnx").exists():
         export_clip_onnx(model_name, model_dir)
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"CLIP Benchmark: {model_name}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     # Prepare inputs
     dummy_image = np.random.randn(1, 3, 224, 224).astype(np.float32)
@@ -481,15 +480,19 @@ def benchmark_clip(model_name: str, model_dir: str):
             text_ms = np.mean(text_times)
             total_ms = vision_ms + text_ms
 
-            results.append({
-                "backend": vision_model.backend_name,
-                "vision_ms": vision_ms,
-                "text_ms": text_ms,
-                "total_ms": total_ms,
-            })
+            results.append(
+                {
+                    "backend": vision_model.backend_name,
+                    "vision_ms": vision_ms,
+                    "text_ms": text_ms,
+                    "total_ms": total_ms,
+                }
+            )
 
-            print(f"  {vision_model.backend_name:<25} Vision: {vision_ms:>6.2f}ms  "
-                  f"Text: {text_ms:>6.2f}ms  Total: {total_ms:>6.2f}ms")
+            print(
+                f"  {vision_model.backend_name:<25} Vision: {vision_ms:>6.2f}ms  "
+                f"Text: {text_ms:>6.2f}ms  Total: {total_ms:>6.2f}ms"
+            )
 
         except Exception as e:
             print(f"  {backend}/{device}: Error - {e}")
@@ -499,26 +502,26 @@ def benchmark_clip(model_name: str, model_dir: str):
     if results:
         results.sort(key=lambda x: x["total_ms"])
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("RESULTS (sorted by total time)")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"{'Backend':<25} {'Vision':>10} {'Text':>10} {'Total':>10} {'Speedup':>10}")
         print("-" * 70)
 
         baseline = results[-1]["total_ms"]
         for r in results:
             speedup = baseline / r["total_ms"]
-            print(f"{r['backend']:<25} {r['vision_ms']:>8.2f}ms {r['text_ms']:>8.2f}ms "
-                  f"{r['total_ms']:>8.2f}ms {speedup:>9.1f}x")
+            print(
+                f"{r['backend']:<25} {r['vision_ms']:>8.2f}ms {r['text_ms']:>8.2f}ms "
+                f"{r['total_ms']:>8.2f}ms {speedup:>9.1f}x"
+            )
 
         print("-" * 70)
         print(f"\nFastest: {results[0]['backend']} ({results[0]['total_ms']:.2f}ms)")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="CLIP Image-Text Embeddings with PolyInfer"
-    )
+    parser = argparse.ArgumentParser(description="CLIP Image-Text Embeddings with PolyInfer")
     parser.add_argument(
         "--model",
         default="clip-vit-base-patch32",
@@ -598,8 +601,8 @@ def main():
 
     # Default: show usage
     print("\nUsage examples:")
-    print("  Similarity:     python clip_embeddings.py --image photo.jpg --text \"a cat\"")
-    print("  Classification: python clip_embeddings.py --image photo.jpg --classify \"cat,dog,bird\"")
+    print('  Similarity:     python clip_embeddings.py --image photo.jpg --text "a cat"')
+    print('  Classification: python clip_embeddings.py --image photo.jpg --classify "cat,dog,bird"')
     print("  Benchmark:      python clip_embeddings.py --benchmark")
     print("  Export:         python clip_embeddings.py --export")
 

@@ -92,10 +92,12 @@ def preprocess_image(image: np.ndarray, size: int = 518) -> tuple[np.ndarray, tu
 
     try:
         import cv2
+
         # Resize to target size
         resized = cv2.resize(image, (size, size), interpolation=cv2.INTER_LINEAR)
     except ImportError:
         from PIL import Image as PILImage
+
         pil_img = PILImage.fromarray(image)
         pil_img = pil_img.resize((size, size), PILImage.BILINEAR)
         resized = np.array(pil_img)
@@ -132,6 +134,7 @@ def postprocess_depth(
 
     try:
         import cv2
+
         depth_resized = cv2.resize(
             depth,
             (original_size[1], original_size[0]),
@@ -139,6 +142,7 @@ def postprocess_depth(
         )
     except ImportError:
         from PIL import Image
+
         pil_depth = Image.fromarray(depth)
         pil_depth = pil_depth.resize(
             (original_size[1], original_size[0]),
@@ -169,6 +173,7 @@ def depth_to_colormap(depth: np.ndarray, colormap: str = "inferno") -> np.ndarra
 
     try:
         import matplotlib.pyplot as plt
+
         cmap = plt.get_cmap(colormap)
         colored = cmap(depth_normalized)[:, :, :3]  # Remove alpha
         return (colored * 255).astype(np.uint8)
@@ -348,8 +353,8 @@ def run_depth_estimation(args):
 
     # Save results
     try:
-        from PIL import Image
         import cv2
+        from PIL import Image
 
         # Save depth colormap
         output_path = args.output or "./models/outputs/depth_output.png"
@@ -489,9 +494,9 @@ def benchmark_depth(model_name: str, model_dir: str):
     if not (model_path / "depth_anything.onnx").exists():
         export_depth_anything_onnx(model_name, model_dir)
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"Depth Anything Benchmark: {model_name}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     # Prepare dummy input
     dummy_input = np.random.randn(1, 3, 518, 518).astype(np.float32)
@@ -549,12 +554,14 @@ def benchmark_depth(model_name: str, model_dir: str):
             mean_ms = np.mean(times)
             fps = 1000 / mean_ms
 
-            results.append({
-                "backend": model.backend_name,
-                "mean_ms": mean_ms,
-                "std_ms": np.std(times),
-                "fps": fps,
-            })
+            results.append(
+                {
+                    "backend": model.backend_name,
+                    "mean_ms": mean_ms,
+                    "std_ms": np.std(times),
+                    "fps": fps,
+                }
+            )
 
             print(f"  {model.backend_name:<30} {mean_ms:>8.2f}ms  ({fps:>6.1f} FPS)")
 
@@ -566,9 +573,9 @@ def benchmark_depth(model_name: str, model_dir: str):
     if results:
         results.sort(key=lambda x: x["mean_ms"])
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("RESULTS (sorted by speed)")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"{'Backend':<30} {'Latency':>10} {'FPS':>10} {'Speedup':>10}")
         print("-" * 70)
 
@@ -578,7 +585,9 @@ def benchmark_depth(model_name: str, model_dir: str):
             print(f"{r['backend']:<30} {r['mean_ms']:>8.2f}ms {r['fps']:>9.1f} {speedup:>9.1f}x")
 
         print("-" * 70)
-        print(f"\nFastest: {results[0]['backend']} ({results[0]['mean_ms']:.2f}ms, {results[0]['fps']:.1f} FPS)")
+        print(
+            f"\nFastest: {results[0]['backend']} ({results[0]['mean_ms']:.2f}ms, {results[0]['fps']:.1f} FPS)"
+        )
 
 
 def main():
@@ -686,7 +695,7 @@ def main():
     print("  Benchmark:     python depth_anything.py --benchmark")
     print("  Export:        python depth_anything.py --export")
     print("\nModel sizes:")
-    for name in DEPTH_MODELS.keys():
+    for name in DEPTH_MODELS:
         print(f"  --model {name}")
 
 

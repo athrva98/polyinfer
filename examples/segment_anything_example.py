@@ -85,7 +85,6 @@ def load_image(image_path: str) -> tuple[np.ndarray, tuple[int, int]]:
         raise
 
     image = Image.open(image_path).convert("RGB")
-    original_size = image.size  # (W, H)
     return np.array(image), (image.size[1], image.size[0])  # (H, W)
 
 
@@ -108,9 +107,11 @@ def preprocess_image(image: np.ndarray, target_size: int = 1024) -> tuple[np.nda
 
     try:
         import cv2
+
         resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
     except ImportError:
         from PIL import Image
+
         pil_img = Image.fromarray(image)
         pil_img = pil_img.resize((new_w, new_h), Image.BILINEAR)
         resized = np.array(pil_img)
@@ -136,7 +137,9 @@ def preprocess_image(image: np.ndarray, target_size: int = 1024) -> tuple[np.nda
     return tensor, transform_info
 
 
-def export_sam_onnx(model_name: str, output_dir: str, checkpoint_path: str | None = None) -> tuple[Path, Path]:
+def export_sam_onnx(
+    model_name: str, output_dir: str, checkpoint_path: str | None = None
+) -> tuple[Path, Path]:
     """Export SAM encoder and decoder to ONNX.
 
     Args:
@@ -414,9 +417,9 @@ class SAMInference:
         # SAM uses box corners as points with labels 2 (top-left) and 3 (bottom-right)
         scale = self._transform_info["scale"]
         x1, y1, x2, y2 = box
-        point_coords = np.array([
-            [[x1 * scale, y1 * scale], [x2 * scale, y2 * scale]]
-        ], dtype=np.float32)
+        point_coords = np.array(
+            [[[x1 * scale, y1 * scale], [x2 * scale, y2 * scale]]], dtype=np.float32
+        )
         point_labels = np.array([[2, 3]], dtype=np.int64)
 
         start = time.perf_counter()
@@ -553,9 +556,9 @@ def benchmark_sam(model_name: str, model_dir: str):
         print("SAM model not exported. Please run with --export first.")
         return
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"SAM Benchmark: {model_name}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     # Prepare dummy inputs
     dummy_image = np.random.randn(1, 3, 1024, 1024).astype(np.float32)
@@ -626,14 +629,18 @@ def benchmark_sam(model_name: str, model_dir: str):
             encode_ms = np.mean(encode_times)
             decode_ms = np.mean(decode_times)
 
-            results.append({
-                "backend": encoder.backend_name,
-                "encode_ms": encode_ms,
-                "decode_ms": decode_ms,
-            })
+            results.append(
+                {
+                    "backend": encoder.backend_name,
+                    "encode_ms": encode_ms,
+                    "decode_ms": decode_ms,
+                }
+            )
 
-            print(f"  {encoder.backend_name:<25} Encode: {encode_ms:>8.1f}ms  "
-                  f"Decode: {decode_ms:>6.2f}ms")
+            print(
+                f"  {encoder.backend_name:<25} Encode: {encode_ms:>8.1f}ms  "
+                f"Decode: {decode_ms:>6.2f}ms"
+            )
 
         except Exception as e:
             print(f"  {backend}/{device}: Error - {e}")
@@ -644,17 +651,19 @@ def benchmark_sam(model_name: str, model_dir: str):
         # Sort by encoder time (main bottleneck)
         results.sort(key=lambda x: x["encode_ms"])
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("RESULTS (sorted by encode time)")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"{'Backend':<25} {'Encode':>12} {'Decode':>10} {'Speedup':>10}")
         print("-" * 70)
 
         baseline = results[-1]["encode_ms"]
         for r in results:
             speedup = baseline / r["encode_ms"]
-            print(f"{r['backend']:<25} {r['encode_ms']:>10.1f}ms {r['decode_ms']:>8.2f}ms "
-                  f"{speedup:>9.1f}x")
+            print(
+                f"{r['backend']:<25} {r['encode_ms']:>10.1f}ms {r['decode_ms']:>8.2f}ms "
+                f"{speedup:>9.1f}x"
+            )
 
         print("-" * 70)
         print(f"\nFastest encode: {results[0]['backend']} ({results[0]['encode_ms']:.1f}ms)")
@@ -662,9 +671,7 @@ def benchmark_sam(model_name: str, model_dir: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Segment Anything Model (SAM) with PolyInfer"
-    )
+    parser = argparse.ArgumentParser(description="Segment Anything Model (SAM) with PolyInfer")
     parser.add_argument(
         "--model",
         default="sam-vit-base",
@@ -749,7 +756,9 @@ def main():
     # Default: show usage
     print("\nUsage examples:")
     print("  Point prompt: python segment_anything_example.py --image photo.jpg --point 500,300")
-    print("  Box prompt:   python segment_anything_example.py --image photo.jpg --box 100,100,400,400")
+    print(
+        "  Box prompt:   python segment_anything_example.py --image photo.jpg --box 100,100,400,400"
+    )
     print("  Benchmark:    python segment_anything_example.py --benchmark")
     print("  Export:       python segment_anything_example.py --export --checkpoint sam_vit_b.pth")
     print("\nDownload checkpoints from:")
