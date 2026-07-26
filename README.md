@@ -151,9 +151,20 @@ output = model(input_data)
 ```
 
 **Supported quantization:**
-- **ONNX Runtime**: Dynamic/Static INT8, UINT8, INT4, FP16
-- **OpenVINO (NNCF)**: Static INT8 with calibration
-- **TensorRT**: FP16/INT8 (via `pi.load(..., fp16=True, int8=True)`)
+- **ONNX Runtime**: Dynamic/Static INT8, UINT8, INT4, FP16. Output is ONNX.
+- **OpenVINO (NNCF)**: Static INT8 with calibration. Output is **OpenVINO IR**
+  (`.xml` + `.bin`), not ONNX — `ov.save_model()` cannot write ONNX. Pass an
+  `.xml` output path; any other extension is redirected to `.xml` with a warning.
+  Use `backend="onnxruntime"` if you need a quantized ONNX file.
+- **TensorRT**: FP16 via `pi.load(..., device="tensorrt", fp16=True)`.
+  **INT8 is not implemented** — `quantize_for_tensorrt(precision="int8")` raises
+  `NotImplementedError`. Setting `int8=True` alone enables `BuilderFlag.INT8`
+  with no calibrator attached, which yields an incorrectly scaled engine; use
+  ONNX Runtime static quantization for INT8 instead.
+
+Calibration data may be a list of arrays, a list of dicts, an iterator, or a
+factory returning one. Iterators are materialized internally so that the
+multiple passes required by entropy and percentile calibration all see data.
 
 ## Performance
 

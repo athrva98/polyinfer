@@ -25,12 +25,18 @@ Basic usage:
 """
 
 import importlib.util
+import warnings
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
+from itertools import islice
 from pathlib import Path
 
 import numpy as np
+
+from polyinfer._logging import get_logger
+
+_logger = get_logger("quantization")
 
 
 class QuantizationMethod(Enum):
@@ -257,7 +263,11 @@ def _quantize_onnxruntime(
     else:
         # Static quantization - requires calibration
         weight_type = dtype_map.get(config.dtype, QuantType.QInt8)
-        activation_type = weight_type
+
+        # Activations mirror the weight type, except for INT4: ONNX Runtime
+        # supports 4-bit weights but not 4-bit activations, and blindly
+        # mirroring produced an unsupported configuration.
+        activation_type = QuantType.QInt8 if config.dtype == QuantizationType.INT4 else weight_type
 
         # Map calibration method
         calib_method_map = {
@@ -329,6 +339,7 @@ class _ORTCalibrationDataReader:
         self.model_path = model_path
         self.num_samples = num_samples
         self._data_iter: Iterator | None = None
+        self._materialized: list | None = None
         self._count = 0
 
         # Get input names from model
@@ -342,28 +353,48 @@ class _ORTCalibrationDataReader:
         self._raw_data = data
         self._setup_iterator()
 
+    def _normalize(self, data):
+        """Wrap bare arrays in {input_name: array} dicts."""
+        if len(data) > 0 and isinstance(data[0], np.ndarray):
+            if len(self._input_names) != 1:
+                raise ValueError(
+                    f"Model has {len(self._input_names)} inputs, "
+                    "but calibration data is a list of arrays. "
+                    "Use list of dicts instead."
+                )
+            return [{self._input_names[0]: arr} for arr in data]
+        return data
+
     def _setup_iterator(self):
-        """Setup the data iterator."""
+        """(Re)build the data iterator so that rewind() actually rewinds.
+
+        ONNX Runtime calls rewind() between calibration passes, and the
+        entropy and percentile methods need more than one pass. This
+        previously re-assigned the *same* exhausted generator, so every pass
+        after the first saw no data at all and calibration silently used only
+        the first pass's statistics.
+
+        The three accepted shapes are handled distinctly:
+          - callable factory: invoked again, yielding a fresh iterator
+          - list: re-iterated
+          - bare iterator/generator: materialized on first use (bounded by
+            num_samples) so later passes can replay it
+        """
         data = self._raw_data
 
+        # A factory can be re-invoked, so no materialization is needed.
         if callable(data) and not isinstance(data, (list, Iterator)):
-            # Factory function
-            data = data()
+            self._data_iter = iter(self._normalize(list(data())[: self.num_samples]))
+            return
 
         if isinstance(data, list):
-            # Convert list to iterator
-            if len(data) > 0 and isinstance(data[0], np.ndarray):
-                # List of arrays - wrap in dicts
-                if len(self._input_names) != 1:
-                    raise ValueError(
-                        f"Model has {len(self._input_names)} inputs, "
-                        "but calibration data is a list of arrays. "
-                        "Use list of dicts instead."
-                    )
-                data = [{self._input_names[0]: arr} for arr in data]
-            self._data_iter = iter(data)
-        else:
-            self._data_iter = data
+            self._data_iter = iter(self._normalize(data))
+            return
+
+        # A one-shot iterator cannot be replayed, so cache it the first time.
+        if self._materialized is None:
+            self._materialized = self._normalize(list(islice(data, self.num_samples)))
+        self._data_iter = iter(self._materialized)
 
     def get_next(self) -> dict[str, np.ndarray] | None:
         """Get next calibration batch."""
@@ -458,18 +489,25 @@ def _quantize_openvino(
         subset_size=num_samples,
     )
 
-    # Save the quantized model
-    # Determine output format based on extension
-    output_str = str(model_output)
-    if output_str.endswith(".onnx"):
-        # Save as ONNX
-        ov.save_model(quantized_model, output_str)
-    else:
-        # Save as OpenVINO IR
-        if not output_str.endswith(".xml"):
-            output_str = output_str + ".xml"
-        ov.save_model(quantized_model, output_str)
-        model_output = Path(output_str)
+    # Save the quantized model.
+    #
+    # ov.save_model() only emits OpenVINO IR (.xml + .bin); it cannot write
+    # ONNX. The previous "Save as ONNX" branch called it with a .onnx path,
+    # producing an IR file wearing an .onnx extension that no ONNX consumer -
+    # including pi.load() - could read. Always write IR, and redirect a
+    # non-.xml path to .xml so the extension matches the format.
+    if model_output.suffix.lower() != ".xml":
+        ir_output = model_output.with_suffix(".xml")
+        warnings.warn(
+            f"OpenVINO NNCF quantization emits OpenVINO IR, not ONNX. "
+            f"Writing {ir_output} instead of {model_output}. "
+            "For a quantized ONNX file, use backend='onnxruntime'.",
+            UserWarning,
+            stacklevel=3,
+        )
+        model_output = ir_output
+
+    ov.save_model(quantized_model, str(model_output))
 
     quantized_size = model_output.stat().st_size / (1024 * 1024)
 
@@ -570,33 +608,37 @@ def quantize_for_tensorrt(
     """
     model_path = Path(model_path)
 
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model not found: {model_path}")
+
     if precision == "fp16":
-        # FP16 doesn't need calibration, just use the model directly
-        print(f"For FP16 TensorRT, use: pi.load('{model_path}', device='tensorrt', fp16=True)")
+        # FP16 needs no calibration; the flag is applied at engine-build time.
+        _logger.info(
+            f"FP16 needs no preparation. Use: "
+            f"pi.load({str(model_path)!r}, device='tensorrt', fp16=True)"
+        )
         return model_path
 
-    elif precision == "int8":
-        if calibration_data is None:
-            raise ValueError("INT8 TensorRT requires calibration_data")
-
-        # For now, we just validate the data and inform the user
-        # Full INT8 calibration would require implementing TensorRT's IInt8Calibrator
-        print(
-            f"INT8 TensorRT calibration prepared. "
-            f"Use: pi.load('{model_path}', device='tensorrt', int8=True, "
-            f"calibration_data=...)"
+    if precision == "int8":
+        # This used to print a success message and return the unmodified path,
+        # so callers believed calibration had happened. It had not: no
+        # calibrator was ever built and no cache was written. Combined with
+        # pi.load(..., int8=True), which sets BuilderFlag.INT8 with no
+        # calibrator attached, that produced a silently miscalibrated engine.
+        raise NotImplementedError(
+            "INT8 TensorRT calibration is not implemented.\n"
+            "Enabling BuilderFlag.INT8 without a calibrator yields an "
+            "incorrectly scaled engine, so this refuses rather than "
+            "appearing to succeed.\n"
+            "Alternatives:\n"
+            "  - INT8 via ONNX Runtime: "
+            "pi.quantize(model, out, method='static', calibration_data=...)\n"
+            "  - FP16 on TensorRT: pi.load(model, device='tensorrt', fp16=True)\n"
+            "Tracking issue: implement IInt8EntropyCalibrator2 and cache the "
+            "calibration table."
         )
 
-        # TODO: Implement TensorRT calibrator that saves calibration cache
-        # This would involve:
-        # 1. Creating a custom IInt8EntropyCalibrator2
-        # 2. Running calibration with the provided data
-        # 3. Saving calibration cache to output_path
-
-        return model_path
-
-    else:
-        raise ValueError(f"Unknown precision: {precision}. Use 'fp16' or 'int8'.")
+    raise ValueError(f"Unknown precision: {precision!r}. Use 'fp16' or 'int8'.")
 
 
 # Convenience functions
