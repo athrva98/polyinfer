@@ -1,10 +1,12 @@
 """IREE backend implementation with comprehensive Vulkan support."""
 
+import hashlib
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -320,6 +322,107 @@ DEVICE_TO_DRIVER = {
 
 
 # =============================================================================
+# Compiled-artifact metadata
+# =============================================================================
+
+# A VMFB records tensor types but not the ONNX tensor *names*, so a model
+# loaded straight from a .vmfb cannot report meaningful input/output names.
+# We capture them from the source ONNX at compile time and store them in a
+# sidecar next to the artifact.
+IO_METADATA_SUFFIX = ".io.json"
+
+
+def _onnx_dtype_to_numpy(elem_type: int) -> str | None:
+    """Map an ONNX TensorProto element type to a numpy dtype name."""
+    try:
+        import onnx
+
+        return str(np.dtype(onnx.helper.tensor_dtype_to_np_dtype(elem_type)))
+    except Exception:
+        return None
+
+
+def read_onnx_io_metadata(onnx_path: Path) -> dict[str, Any]:
+    """Extract input/output names, dtypes, and shapes from an ONNX model.
+
+    Initializers are excluded: older exporters list them alongside real graph
+    inputs, and they are not runtime inputs.
+    """
+    import onnx
+
+    model = onnx.load(str(onnx_path), load_external_data=False)
+    initializers = {init.name for init in model.graph.initializer}
+
+    def describe(value_infos) -> list[dict[str, Any]]:
+        described = []
+        for value_info in value_infos:
+            tensor_type = value_info.type.tensor_type
+            shape = [dim.dim_value if dim.dim_value > 0 else -1 for dim in tensor_type.shape.dim]
+            described.append(
+                {
+                    "name": value_info.name,
+                    "dtype": _onnx_dtype_to_numpy(tensor_type.elem_type),
+                    "shape": shape,
+                }
+            )
+        return described
+
+    return {
+        "inputs": describe([vi for vi in model.graph.input if vi.name not in initializers]),
+        "outputs": describe(model.graph.output),
+    }
+
+
+def _metadata_path(vmfb_path: Path) -> Path:
+    return vmfb_path.with_suffix(vmfb_path.suffix + IO_METADATA_SUFFIX)
+
+
+def write_io_metadata(vmfb_path: Path, metadata: dict[str, Any]) -> None:
+    """Persist I/O metadata alongside a compiled VMFB."""
+    try:
+        _metadata_path(vmfb_path).write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    except OSError as e:  # Non-fatal: the model still runs, just less introspectable.
+        _logger.debug(f"Could not write I/O metadata for {vmfb_path}: {e}")
+
+
+def read_io_metadata(vmfb_path: Path) -> dict[str, Any] | None:
+    """Load I/O metadata for a VMFB, or None when unavailable."""
+    path = _metadata_path(vmfb_path)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        _logger.debug(f"Ignoring unreadable I/O metadata {path}: {e}")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def compilation_cache_key(
+    onnx_path: Path | None,
+    target: str,
+    options: "IREECompileOptions",
+) -> str:
+    """Build a cache key covering everything that changes the artifact.
+
+    The cache filename previously encoded only the model stem, target, and
+    vulkan_target, so changing opt_level or editing the source model silently
+    reused a stale VMFB.
+    """
+    payload: dict[str, Any] = {"target": target, "options": asdict(options)}
+
+    if onnx_path is not None:
+        try:
+            stat = onnx_path.stat()
+            payload["source"] = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+        except OSError:
+            pass
+
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    return digest[:12]
+
+
+# =============================================================================
 # Error Handling
 # =============================================================================
 
@@ -409,11 +512,17 @@ class IREEModel(CompiledModel):
         device_name: str,
         input_names: list[str],
         output_names: list[str],
+        input_dtypes: list[str | None] | None = None,
+        input_shapes: list[tuple] | None = None,
+        output_shapes: list[tuple] | None = None,
     ):
         self._vmfb_path = vmfb_path
         self._device_name = device_name
         self._input_names = input_names
         self._output_names = output_names
+        self._input_dtypes = input_dtypes or [None] * len(input_names)
+        self._input_shapes = input_shapes or []
+        self._output_shapes = output_shapes or []
 
         # Get the driver name for this device
         device_type = device_name.split(":")[0] if ":" in device_name else device_name
@@ -465,10 +574,38 @@ class IREEModel(CompiledModel):
     def output_names(self) -> list[str]:
         return self._output_names
 
+    @property
+    def input_shapes(self) -> list[tuple]:
+        return self._input_shapes
+
+    @property
+    def output_shapes(self) -> list[tuple]:
+        return self._output_shapes
+
+    def _prepare_input(self, array: np.ndarray, expected_dtype: str | None) -> np.ndarray:
+        """Make an input contiguous and match the model's expected dtype.
+
+        This used to coerce every input to float32 unconditionally, which
+        silently reinterpreted integer tensors - token IDs, attention masks,
+        SAM point labels - as floats and produced wrong results rather than
+        an error. We now cast only towards the dtype the model actually
+        declares, and leave the array alone when that is unknown.
+        """
+        array = np.asarray(array)
+        if expected_dtype is not None and array.dtype != np.dtype(expected_dtype):
+            array = array.astype(expected_dtype)
+        return np.ascontiguousarray(array)
+
     def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
-        # Ensure inputs are contiguous float32
-        inputs = tuple(np.ascontiguousarray(inp, dtype=np.float32) for inp in inputs)
+        self._check_input_count(inputs)
+
+        dtypes = self._input_dtypes
+        if len(dtypes) != len(inputs):
+            dtypes = list(dtypes) + [None] * (len(inputs) - len(dtypes))
+        inputs = tuple(
+            self._prepare_input(inp, dtype) for inp, dtype in zip(inputs, dtypes, strict=True)
+        )
 
         # Run inference
         if self._func is None:
@@ -670,9 +807,14 @@ class IREEBackend(Backend):
         cache_dir = Path(kwargs.get("cache_dir", model_path_obj.parent))
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Include vulkan target in cache filename if specified
+        # The cache filename must cover every input that changes the compiled
+        # artifact. It previously encoded only the model stem, target, and
+        # vulkan_target, so changing opt_level, data_tiling, opset_version, or
+        # extra_flags - or editing the source model - silently reused a stale
+        # VMFB. The hash also covers the source file's size and mtime.
         target_suffix = f"_{options.vulkan_target}" if options.vulkan_target else ""
-        vmfb_path = cache_dir / f"{model_path_obj.stem}_{target}{target_suffix}.vmfb"
+        cache_key = compilation_cache_key(model_path_obj, target, options)
+        vmfb_path = cache_dir / f"{model_path_obj.stem}_{target}{target_suffix}_{cache_key}.vmfb"
 
         _logger.debug(f"Target: {target}, cache path: {vmfb_path}")
 
@@ -690,6 +832,12 @@ class IREEBackend(Backend):
             options,
             save_mlir=kwargs.get("save_mlir", False),
         )
+
+        # Capture the ONNX tensor names/dtypes; a VMFB does not carry them.
+        try:
+            write_io_metadata(vmfb_path, read_onnx_io_metadata(model_path_obj))
+        except Exception as e:
+            _logger.debug(f"Could not record I/O metadata for {model_path_obj}: {e}")
 
         _logger.info(f"Compilation complete: {vmfb_path}")
         return self._load_vmfb(vmfb_path, device)
@@ -918,14 +1066,37 @@ class IREEBackend(Backend):
                 mlir_path.unlink()
 
     def _load_vmfb(self, vmfb_path: Path, device: str) -> IREEModel:
-        """Load a compiled VMFB file."""
-        # TODO: Extract actual input/output names from the module
-        input_names = ["input"]
-        output_names = ["output"]
+        """Load a compiled VMFB file.
+
+        Input/output names come from the sidecar metadata written at compile
+        time. A VMFB records tensor types but not ONNX tensor names, so for a
+        VMFB compiled elsewhere we fall back to positional names rather than
+        the previous hardcoded ["input"] / ["output"], which made
+        Model.run() unusable and mislabelled every output.
+        """
+        metadata = read_io_metadata(vmfb_path)
+
+        if metadata is None:
+            _logger.debug(
+                f"No I/O metadata beside {vmfb_path.name}; using positional names. "
+                "Compile through polyinfer to get the original ONNX names."
+            )
+            return IREEModel(
+                vmfb_path=vmfb_path,
+                device_name=device,
+                input_names=[],
+                output_names=[],
+            )
+
+        inputs = metadata.get("inputs", [])
+        outputs = metadata.get("outputs", [])
 
         return IREEModel(
             vmfb_path=vmfb_path,
             device_name=device,
-            input_names=input_names,
-            output_names=output_names,
+            input_names=[spec["name"] for spec in inputs],
+            output_names=[spec["name"] for spec in outputs],
+            input_dtypes=[spec.get("dtype") for spec in inputs],
+            input_shapes=[tuple(spec.get("shape", [])) for spec in inputs],
+            output_shapes=[tuple(spec.get("shape", [])) for spec in outputs],
         )
