@@ -44,6 +44,55 @@ class InferenceConfig:
         """Get the device ID (0 for CPU, N for cuda:N)."""
         return device_index(self.device)
 
+    def to_backend_kwargs(self) -> dict[str, Any]:
+        """Translate this config into backend load() keyword arguments.
+
+        Only non-default values are emitted, so a config left at its defaults
+        does not override a backend's own defaults.
+
+        Not every backend honours every option; backends ignore keywords they
+        do not recognise. Coverage today:
+
+        =================== ============================================
+        Field               Honoured by
+        =================== ============================================
+        precision           onnxruntime (TensorRT EP), tensorrt
+        optimization_level  openvino, onnxruntime
+        num_threads         openvino, onnxruntime
+        cache_dir           openvino, onnxruntime (TensorRT EP), iree
+        enable_profiling    onnxruntime
+        extra_options       passed through verbatim
+        =================== ============================================
+
+        Returns:
+            Keyword arguments suitable for ``Backend.load(**kwargs)``.
+        """
+        kwargs: dict[str, Any] = {}
+
+        # Precision. fp32 is the backend default, so emit nothing for it.
+        if self.precision == "fp16":
+            kwargs["fp16"] = True
+        elif self.precision == "int8":
+            kwargs["int8"] = True
+
+        kwargs["optimization_level"] = self.optimization_level
+
+        # 0 means "let the backend decide", which is what omitting it does.
+        if self.num_threads > 0:
+            kwargs["num_threads"] = self.num_threads
+
+        if self.enable_profiling:
+            kwargs["enable_profiling"] = True
+
+        if self.cache_dir is not None:
+            kwargs["cache_dir"] = self.cache_dir
+            # OpenVINO gates caching on a separate flag.
+            kwargs["enable_caching"] = True
+
+        # Caller-supplied options win over anything derived above.
+        kwargs.update(self.extra_options)
+        return kwargs
+
 
 @dataclass
 class BenchmarkConfig:

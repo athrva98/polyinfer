@@ -12,6 +12,10 @@ from polyinfer.discovery import get_backend, select_backend
 
 _logger = get_logger("model")
 
+# Sentinel for "caller did not specify a device", so a config can supply one
+# without clobbering an explicit argument.
+_DEFAULT_DEVICE = "cpu"
+
 
 class Model:
     """Unified model wrapper that works with any backend.
@@ -28,7 +32,7 @@ class Model:
     def __init__(
         self,
         model_path: str | Path,
-        device: str = "cpu",
+        device: str = _DEFAULT_DEVICE,
         backend: str | None = None,
         config: InferenceConfig | None = None,
         **kwargs,
@@ -39,7 +43,11 @@ class Model:
             model_path: Path to ONNX model file
             device: Target device (cpu, cuda, cuda:0, directml, etc.)
             backend: Specific backend to use (None for auto-select)
-            config: Inference configuration
+            config: Inference configuration. Its options are translated into
+                backend keyword arguments via
+                :meth:`InferenceConfig.to_backend_kwargs`. Explicit keyword
+                arguments take precedence over the config, and the config's
+                device is used only when no device argument was given.
             **kwargs: Backend-specific options
         """
         self.model_path = Path(model_path)
@@ -49,11 +57,17 @@ class Model:
 
         _logger.debug(f"Loading model: {model_path}")
 
-        # Merge config with kwargs
+        # Merge config with kwargs.
+        #
+        # Precedence: explicit keyword arguments > config > defaults. The
+        # config's device only applies when the caller did not pass one, so
+        # `load(path, device="cuda", config=cfg)` no longer has its device
+        # silently replaced by the config's default of "cpu".
         if config:
-            device = config.device
-            backend = config.backend or backend
-            kwargs.update(config.extra_options)
+            if device == _DEFAULT_DEVICE:
+                device = config.device
+            backend = backend or config.backend
+            kwargs = {**config.to_backend_kwargs(), **kwargs}
 
         # Normalize device and backend
         device = self._normalize_device(device)

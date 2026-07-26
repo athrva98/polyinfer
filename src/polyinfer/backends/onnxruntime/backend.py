@@ -376,6 +376,13 @@ class ONNXRuntimeBackend(Backend):
         # Session options
         sess_options = ort.SessionOptions()
 
+        # Accept the generic option names produced by InferenceConfig, so a
+        # config is not silently ignored. Backend-specific names win.
+        if "graph_optimization_level" not in kwargs and "optimization_level" in kwargs:
+            kwargs["graph_optimization_level"] = kwargs["optimization_level"]
+        if "intra_op_num_threads" not in kwargs and kwargs.get("num_threads", 0) > 0:
+            kwargs["intra_op_num_threads"] = kwargs["num_threads"]
+
         # Graph optimization
         opt_level = kwargs.get("graph_optimization_level", 99)
         if opt_level == 0:
@@ -398,6 +405,10 @@ class ONNXRuntimeBackend(Backend):
             sess_options.enable_mem_pattern = kwargs["enable_mem_pattern"]
         if "enable_cpu_mem_arena" in kwargs:
             sess_options.enable_cpu_mem_arena = kwargs["enable_cpu_mem_arena"]
+
+        # Profiling
+        if kwargs.get("enable_profiling", False):
+            sess_options.enable_profiling = True
 
         # Create session with fallback handling for TensorRT EP issues
         # TensorRT EP can fail during session creation even if it shows as available
