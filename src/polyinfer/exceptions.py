@@ -25,6 +25,7 @@ keeps working:
     ``ModelLoadError``            is a ``RuntimeError``
     ``BackendNotAvailableError``  is a ``RuntimeError``
     ``DeviceNotSupportedError``   is a ``ValueError``
+    ``InvalidOptionError``        is a ``ValueError``
     ``BackendNotFoundError``      is a ``KeyError``
 
 The originating backend exception is always attached as ``__cause__``, so
@@ -73,6 +74,16 @@ class DeviceNotSupportedError(PolyInferError, ValueError):
     """The requested device is not supported by the selected backend."""
 
 
+class InvalidOptionError(PolyInferError, ValueError):
+    """A backend option was given an invalid value.
+
+    This is a caller mistake - a bad `optimization_level`, an unrecognized
+    `performance_hint` - not a failure to load the model, so it is a
+    ValueError and is deliberately *not* wrapped in ModelLoadError when
+    raised from a backend's load().
+    """
+
+
 class ModelLoadError(PolyInferError, RuntimeError):
     """A model could not be loaded, compiled, or prepared for inference."""
 
@@ -103,6 +114,7 @@ __all__ = [
     "BackendNotFoundError",
     "BackendNotAvailableError",
     "DeviceNotSupportedError",
+    "InvalidOptionError",
     "ModelLoadError",
     "CompilationError",
     "InferenceError",

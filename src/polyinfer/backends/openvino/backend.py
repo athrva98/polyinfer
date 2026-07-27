@@ -9,7 +9,12 @@ from polyinfer.backends.base import (
     describe_import_error,
     translate_errors,
 )
-from polyinfer.exceptions import BackendNotAvailableError, InvalidInputError, ModelLoadError
+from polyinfer.exceptions import (
+    BackendNotAvailableError,
+    InvalidInputError,
+    InvalidOptionError,
+    ModelLoadError,
+)
 
 _logger = get_logger("backends.openvino")
 
@@ -252,7 +257,8 @@ class OpenVINOBackend(Backend):
             Compiled model ready for inference
 
         Raises:
-            ValueError: If performance_hint or optimization_level is invalid.
+            InvalidOptionError: If performance_hint or optimization_level is
+                invalid. Also a ValueError.
         """
         if not OPENVINO_AVAILABLE:
             _logger.error("OpenVINO not installed")
@@ -294,14 +300,14 @@ class OpenVINOBackend(Backend):
         if perf_hint is not None:
             perf_hint = str(perf_hint).upper()
             if perf_hint not in PERFORMANCE_HINTS:
-                raise ValueError(
+                raise InvalidOptionError(
                     f"Invalid performance_hint {perf_hint!r}. "
                     f"Expected one of {list(PERFORMANCE_HINTS)}."
                 )
         else:
             opt_level = kwargs.get("optimization_level", 2)
             if opt_level not in PERF_HINTS:
-                raise ValueError(
+                raise InvalidOptionError(
                     f"Invalid optimization_level {opt_level!r} for the openvino backend. "
                     f"Expected one of {sorted(PERF_HINTS)} "
                     "(lower favours throughput, higher favours latency), "

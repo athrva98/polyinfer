@@ -25,6 +25,7 @@ from polyinfer.exceptions import (
     DeviceNotSupportedError,
     InferenceError,
     InvalidInputError,
+    InvalidOptionError,
     ModelLoadError,
     PolyInferError,
     QuantizationError,
@@ -34,6 +35,7 @@ ALL_ERRORS = [
     BackendNotFoundError,
     BackendNotAvailableError,
     DeviceNotSupportedError,
+    InvalidOptionError,
     ModelLoadError,
     CompilationError,
     InferenceError,
@@ -76,6 +78,7 @@ class TestBackwardsCompatibility:
             (BackendNotFoundError, KeyError),
             (BackendNotAvailableError, RuntimeError),
             (DeviceNotSupportedError, ValueError),
+            (InvalidOptionError, ValueError),
             (ModelLoadError, RuntimeError),
             (CompilationError, RuntimeError),
             (InferenceError, RuntimeError),
@@ -195,6 +198,27 @@ class TestRealBackendErrors:
 
         with pytest.raises(InvalidInputError):
             model.run({"definitely_not_an_input": np.zeros((1,), dtype=np.float32)})
+
+    def test_invalid_backend_option_stays_a_valueerror(self, model_path):
+        """An invalid option is a caller mistake, not a load failure.
+
+        Regression: Model.__init__ wrapped every non-PolyInferError from
+        backend.load() into ModelLoadError, which is a RuntimeError. That
+        turned an invalid `optimization_level` into a RuntimeError and broke
+        `except ValueError` handling.
+        """
+        if not pi.is_available("openvino"):
+            pytest.skip("OpenVINO not installed")
+
+        with pytest.raises(ValueError, match="optimization_level"):
+            pi.load(model_path, backend="openvino", device="cpu", optimization_level=99)
+
+    def test_invalid_backend_option_is_also_a_polyinfer_error(self, model_path):
+        if not pi.is_available("openvino"):
+            pytest.skip("OpenVINO not installed")
+
+        with pytest.raises(pi.InvalidOptionError):
+            pi.load(model_path, backend="openvino", device="cpu", performance_hint="FASTEST")
 
     def test_backend_device_mismatch_is_typed(self, model_path):
         if not pi.is_available("openvino"):
