@@ -354,8 +354,83 @@ class TestNativeTensorRTOptions:
 # =============================================================================
 
 
+class TestOpenVINOPerformanceHints:
+    """Test the optimization_level -> PERFORMANCE_HINT mapping.
+
+    Pure data assertions - these run without OpenVINO installed, unlike the
+    hardware-dependent tests in TestOpenVINOOptions below.
+    """
+
+    def test_low_levels_favour_throughput(self):
+        """optimization_level 0 must mean throughput, as documented.
+
+        Regression: the table used to map level 0 to LATENCY, the exact
+        opposite of the documented "0=throughput" contract.
+        """
+        from polyinfer.backends.openvino.backend import PERF_HINTS
+
+        assert PERF_HINTS[0] == "THROUGHPUT"
+        assert PERF_HINTS[1] == "THROUGHPUT"
+
+    def test_high_levels_favour_latency(self):
+        from polyinfer.backends.openvino.backend import PERF_HINTS
+
+        assert PERF_HINTS[2] == "LATENCY"
+        assert PERF_HINTS[3] == "LATENCY"
+
+    def test_default_level_is_latency(self):
+        """The documented default (2) must stay latency-optimized."""
+        from polyinfer.backends.openvino.backend import PERF_HINTS
+
+        assert PERF_HINTS[2] == "LATENCY"
+
+    def test_mapping_is_monotonic(self):
+        """Throughput hints must never appear above a latency hint."""
+        from polyinfer.backends.openvino.backend import PERF_HINTS
+
+        hints = [PERF_HINTS[level] for level in sorted(PERF_HINTS)]
+        first_latency = hints.index("LATENCY")
+        assert "THROUGHPUT" not in hints[first_latency:], (
+            f"optimization_level mapping is not monotonic: {hints}"
+        )
+
+    def test_all_hints_are_valid_openvino_values(self):
+        from polyinfer.backends.openvino.backend import PERF_HINTS, PERFORMANCE_HINTS
+
+        for level, hint in PERF_HINTS.items():
+            assert hint in PERFORMANCE_HINTS, f"level {level} maps to invalid hint {hint!r}"
+
+
 class TestOpenVINOOptions:
     """Test OpenVINO backend options."""
+
+    @pytest.mark.openvino
+    def test_invalid_optimization_level_raises(self, dummy_onnx_model):
+        """Out-of-range levels must fail loudly, not silently pick a default."""
+        if not pi.is_available("openvino"):
+            pytest.skip("OpenVINO not installed")
+
+        with pytest.raises(ValueError, match="optimization_level"):
+            pi.load(dummy_onnx_model, backend="openvino", device="cpu", optimization_level=99)
+
+    @pytest.mark.openvino
+    def test_invalid_performance_hint_raises(self, dummy_onnx_model):
+        if not pi.is_available("openvino"):
+            pytest.skip("OpenVINO not installed")
+
+        with pytest.raises(ValueError, match="performance_hint"):
+            pi.load(dummy_onnx_model, backend="openvino", device="cpu", performance_hint="FASTEST")
+
+    @pytest.mark.openvino
+    def test_explicit_performance_hint_accepted(self, dummy_onnx_model, dummy_input):
+        if not pi.is_available("openvino"):
+            pytest.skip("OpenVINO not installed")
+
+        for hint in ("LATENCY", "THROUGHPUT"):
+            model = pi.load(
+                dummy_onnx_model, backend="openvino", device="cpu", performance_hint=hint
+            )
+            assert model(dummy_input) is not None
 
     @pytest.mark.openvino
     def test_optimization_level(self, dummy_onnx_model, dummy_input):

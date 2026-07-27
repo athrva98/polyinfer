@@ -13,7 +13,7 @@ Unified ML inference across multiple backends.
 
 ### Installation
 
-**From PyPI** (coming soon):
+**From PyPI**:
 ```bash
 pip install polyinfer[nvidia]   # NVIDIA GPU (CUDA + cuDNN via onnxruntime-gpu)
 pip install polyinfer[intel]    # Intel CPU/GPU/NPU
@@ -45,8 +45,13 @@ pip install -e ".[nvidia]"      # Or any of the extras above
 import polyinfer as pi
 
 # List available backends and devices
-print(pi.list_backends())  # ['onnxruntime', 'openvino']
-print(pi.list_devices())   # [cpu, cuda, tensorrt, ...]
+print(pi.list_backends())                      # ['onnxruntime', 'openvino']
+print([d.name for d in pi.list_devices()])     # ['cpu', 'cuda', 'tensorrt']
+
+# list_devices() returns DeviceInfo objects, so print the names for a
+# readable list. If a backend you expected is missing, ask why:
+print(pi.backend_errors())
+# {'openvino': 'not installed (pip install openvino)'}
 
 # Load model - auto-selects fastest backend
 model = pi.load("model.onnx", device="cpu")        # Uses OpenVINO (fastest for CPU)
@@ -151,9 +156,62 @@ output = model(input_data)
 ```
 
 **Supported quantization:**
-- **ONNX Runtime**: Dynamic/Static INT8, UINT8, INT4, FP16
-- **OpenVINO (NNCF)**: Static INT8 with calibration
-- **TensorRT**: FP16/INT8 (via `pi.load(..., fp16=True, int8=True)`)
+- **ONNX Runtime**: Dynamic/Static INT8, UINT8, INT4, FP16. Output is ONNX.
+- **OpenVINO (NNCF)**: Static INT8 with calibration. Output is **OpenVINO IR**
+  (`.xml` + `.bin`), not ONNX — `ov.save_model()` cannot write ONNX. Pass an
+  `.xml` output path; any other extension is redirected to `.xml` with a warning.
+  Use `backend="onnxruntime"` if you need a quantized ONNX file.
+- **TensorRT**: FP16 via `pi.load(..., device="tensorrt", fp16=True)`.
+  **INT8 is not implemented** — `quantize_for_tensorrt(precision="int8")` raises
+  `NotImplementedError`. Setting `int8=True` alone enables `BuilderFlag.INT8`
+  with no calibrator attached, which yields an incorrectly scaled engine; use
+  ONNX Runtime static quantization for INT8 instead.
+
+Calibration data may be a list of arrays, a list of dicts, an iterator, or a
+factory returning one. Iterators are materialized internally so that the
+multiple passes required by entropy and percentile calibration all see data.
+
+## Error Handling
+
+Every error PolyInfer raises derives from `PolyInferError`, so one handler
+works across all backends:
+
+```python
+import polyinfer as pi
+
+try:
+    model = pi.load("model.onnx", device="cuda")
+    output = model(input_data)
+except pi.InvalidInputError as e:
+    print("Bad input:", e)
+except pi.ModelLoadError as e:
+    print("Could not load:", e)
+except pi.PolyInferError as e:
+    print("Inference failed:", e)
+    print("Backend detail:", e.__cause__)   # original backend exception
+```
+
+| Exception | Raised when | Also a |
+|-----------|-------------|--------|
+| `PolyInferError` | base class for all of the below | `Exception` |
+| `BackendNotFoundError` | no backend registered under that name | `KeyError` |
+| `BackendNotAvailableError` | backend registered but not installed/importable | `RuntimeError` |
+| `DeviceNotSupportedError` | backend does not support the device | `ValueError` |
+| `ModelLoadError` | model could not be loaded or compiled | `RuntimeError` |
+| `CompilationError` | AOT compilation failed (IREE, TensorRT engine build) | `ModelLoadError` |
+| `InferenceError` | backend failed during inference | `RuntimeError` |
+| `InvalidInputError` | wrong input count, names, shapes, or dtypes | `InferenceError`, `ValueError` |
+| `QuantizationError` | quantization failed or is unsupported | `RuntimeError` |
+
+Each keeps the builtin base it previously raised, so existing
+`except RuntimeError` / `except ValueError` code continues to work. The
+originating backend exception is always preserved as `__cause__`.
+
+This matters because backends do not agree on exception types: ONNX
+Runtime's `InvalidArgument` derives directly from `Exception`, so
+`except (ValueError, RuntimeError)` never caught an ONNX Runtime shape
+error, while the same failure on TensorRT or OpenVINO surfaced as a
+`RuntimeError`.
 
 ## Performance
 
@@ -302,8 +360,8 @@ python -c "import polyinfer as pi; print(pi.list_devices())"
 
 # Verify installation
 import polyinfer as pi
-print(pi.list_devices())
-# Output: [cpu, cuda, tensorrt, vulkan]
+print([d.name for d in pi.list_devices()])
+# Output: ['cpu', 'cuda', 'tensorrt', 'vulkan']
 
 # TensorRT works out of the box on Colab!
 model = pi.load("model.onnx", device="tensorrt")  # 638 FPS on ResNet18!
@@ -371,8 +429,13 @@ These aliases are automatically normalized:
 |-------|---------------|
 | `gpu`, `nvidia` | `cuda` |
 | `trt` | `tensorrt` |
-| `dml` | `directml` |
-| `igpu`, `intel-igpu` | `intel-gpu` |
+| `dml`, `directx` | `directml` |
+| `igpu`, `intel-igpu`, `intel_igpu`, `intel_gpu` | `intel-gpu` |
+| `amd` | `rocm` |
+| `metal` | `coreml` |
+
+Device strings are case-insensitive and are trimmed of surrounding whitespace.
+An index suffix is preserved through normalization, so `gpu:1` becomes `cuda:1`.
 
 ---
 
@@ -492,11 +555,18 @@ Optimized for Intel hardware.
 
 ```python
 model = pi.load("model.onnx", backend="openvino", device="cpu",
-    optimization_level=2,           # 0=throughput, 1=balanced, 2=latency
-    num_threads=8,                  # CPU threads
+    performance_hint="LATENCY",     # LATENCY | THROUGHPUT | CUMULATIVE_THROUGHPUT
+    num_threads=8,                  # CPU threads (CPU device only)
     enable_caching=True,
     cache_dir="./ov_cache",
 )
+
+# Or use the coarse numeric scale (lower favours throughput, higher favours latency):
+#   optimization_level=0 or 1 -> THROUGHPUT
+#   optimization_level=2 (default) or 3 -> LATENCY
+# `performance_hint` takes precedence when both are given. Out-of-range values
+# raise ValueError rather than silently falling back to a default.
+model = pi.load("model.onnx", backend="openvino", device="cpu", optimization_level=0)
 ```
 
 ### IREE Backend
@@ -530,8 +600,11 @@ for name, target in VULKAN_TARGETS.items():
     print(f"{name}: {target.description}")
 
 # MLIR export for custom hardware
-mlir = pi.export_mlir("model.onnx", "model.mlir", load_content=True)
+mlir = pi.export_mlir("model.onnx", "model.mlir", load_content=True, opset_version=17)
 vmfb = pi.compile_mlir("model.mlir", device="vulkan", vulkan_target="rdna3")
+
+# Load the compiled artifact through the IREE backend (pi.load expects ONNX)
+model = pi.get_backend("iree").load_vmfb(vmfb, device="vulkan")
 ```
 
 **Supported Vulkan GPU Targets:**
@@ -831,6 +904,21 @@ print("Backends:", pi.list_backends())
 print("Devices:")
 for d in pi.list_devices():
     print(f"  {d.name}: {d.backends}")
+
+# If a backend is missing, this says why. It distinguishes "never installed"
+# from "installed but the native library failed to load", which need
+# different fixes.
+for name, reason in pi.backend_errors().items():
+    print(f"  {name}: {reason}")
+```
+
+Example output when a package is present but broken:
+
+```
+  onnxruntime: installed but failed to import: DLL load failed while importing
+               onnxruntime_pybind11_state: A dynamic link library (DLL)
+               initialization routine failed.
+  openvino: not installed (pip install openvino)
 ```
 
 #### Check NVIDIA Library Detection

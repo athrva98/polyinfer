@@ -92,6 +92,7 @@ def get_model_inputs_info(model_path: str) -> dict:
     """
     try:
         import onnx
+
         model = onnx.load(model_path)
 
         inputs_info = {
@@ -124,7 +125,12 @@ def get_model_inputs_info(model_path: str) -> dict:
 
         return inputs_info
     except ImportError:
-        return {"names": ["input_ids", "attention_mask"], "shapes": {}, "num_heads": None, "head_dim": None}
+        return {
+            "names": ["input_ids", "attention_mask"],
+            "shapes": {},
+            "num_heads": None,
+            "head_dim": None,
+        }
 
 
 def create_dummy_input(
@@ -160,7 +166,7 @@ def create_dummy_input(
 
     # Check if model needs KV-cache (past_key_values)
     num_heads = info.get("num_heads") or 3  # Default for SmolLM
-    head_dim = info.get("head_dim") or 64    # Default for SmolLM
+    head_dim = info.get("head_dim") or 64  # Default for SmolLM
 
     for name in input_names:
         if name.startswith("past_key_values"):
@@ -200,13 +206,16 @@ def benchmark_backend(
         # Load model
         model = pi.load(model_path, backend=backend, device=device)
 
-        # Prepare inputs (flatten dict to positional args)
-        inputs = list(input_data.values())
+        # Bind inputs by name, not by position. An LLM's ONNX graph declares
+        # input_ids, attention_mask, position_ids and a variable number of
+        # past_key_values entries in an order that need not match the order
+        # this dict was built in, and positional binding would silently pair
+        # tensors with the wrong inputs.
 
         # Warmup
         for _ in range(warmup):
             try:
-                _ = model(*inputs)
+                _ = model.run(input_data)
             except Exception:
                 return None
 
@@ -214,7 +223,7 @@ def benchmark_backend(
         times = []
         for _ in range(iterations):
             start = time.perf_counter()
-            _ = model(*inputs)
+            _ = model.run(input_data)
             end = time.perf_counter()
             times.append((end - start) * 1000)  # Convert to ms
 
@@ -241,10 +250,10 @@ def run_all_backends(model_path: str, seq_len: int = 32):
         model_path: Path to ONNX model
         seq_len: Sequence length for benchmark
     """
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"LLM Benchmark: {Path(model_path).parent.name}")
     print(f"Sequence Length: {seq_len} tokens")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     # Show available backends and devices
     print("Available backends:", pi.list_backends())
@@ -263,14 +272,11 @@ def run_all_backends(model_path: str, seq_len: int = 32):
         # CPU backends (ONNX Runtime and OpenVINO only - IREE doesn't support KV-cache)
         ("onnxruntime", "cpu"),
         ("openvino", "cpu"),
-
         # NVIDIA GPU (ONNX Runtime only for LLMs)
         ("onnxruntime", "cuda"),
         ("onnxruntime", "tensorrt"),
-
         # Intel GPU
         ("openvino", "intel-gpu"),
-
         # DirectML (Windows AMD/Intel)
         ("onnxruntime", "directml"),
     ]
@@ -285,15 +291,14 @@ def run_all_backends(model_path: str, seq_len: int = 32):
         if backend not in pi.list_backends():
             continue
 
-        result = benchmark_backend(
-            model_path, backend, device, input_data,
-            warmup=5, iterations=20
-        )
+        result = benchmark_backend(model_path, backend, device, input_data, warmup=5, iterations=20)
 
         if result:
             results.append(result)
-            print(f"  {result['backend_name']:<30} {result['mean_ms']:>8.2f}ms  "
-                  f"({result['tokens_per_sec']:>8.1f} tok/s)")
+            print(
+                f"  {result['backend_name']:<30} {result['mean_ms']:>8.2f}ms  "
+                f"({result['tokens_per_sec']:>8.1f} tok/s)"
+            )
 
     print("-" * 70)
 
@@ -311,7 +316,9 @@ def run_all_backends(model_path: str, seq_len: int = 32):
 
         for r in results:
             speedup = baseline / r["mean_ms"]
-            print(f"{r['backend_name']:<30} {r['mean_ms']:>8.2f}ms {r['tokens_per_sec']:>9.1f} {speedup:>9.1f}x")
+            print(
+                f"{r['backend_name']:<30} {r['mean_ms']:>8.2f}ms {r['tokens_per_sec']:>9.1f} {speedup:>9.1f}x"
+            )
 
         print("-" * 70)
         print(f"\nFastest: {results[0]['backend_name']} ({results[0]['mean_ms']:.2f}ms)")
@@ -331,10 +338,10 @@ def export_to_mlir(model_path: str, output_dir: str):
         model_path: Path to ONNX model
         output_dir: Directory to save MLIR files
     """
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("Exporting to MLIR for Custom Hardware")
     print("(Note: IREE/MLIR best suited for CNNs, not LLMs with KV-cache)")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -366,7 +373,7 @@ def export_to_mlir(model_path: str, output_dir: str):
             vmfb_path = pi.compile_mlir(
                 mlir.path,
                 device=device,
-                output_path=output_path / f"{model_name}_{target_name}.vmfb"
+                output_path=output_path / f"{model_name}_{target_name}.vmfb",
             )
             print(f"   {target_name}: {vmfb_path} ({vmfb_path.stat().st_size / 1024:.1f} KB)")
         except Exception as e:
@@ -396,35 +403,26 @@ def main():
         "--model",
         type=str,
         default="HuggingFaceTB/SmolLM-135M",
-        help="HuggingFace model name or path to ONNX model"
+        help="HuggingFace model name or path to ONNX model",
     )
     parser.add_argument(
         "--model-dir",
         type=str,
         default="./models/smollm-135m-onnx",
-        help="Directory to save/load ONNX model"
+        help="Directory to save/load ONNX model",
     )
+    parser.add_argument("--seq-len", type=int, default=32, help="Sequence length for benchmark")
     parser.add_argument(
-        "--seq-len",
-        type=int,
-        default=32,
-        help="Sequence length for benchmark"
-    )
-    parser.add_argument(
-        "--export-mlir",
-        action="store_true",
-        help="Export model to MLIR for custom hardware"
+        "--export-mlir", action="store_true", help="Export model to MLIR for custom hardware"
     )
     parser.add_argument(
         "--mlir-dir",
         type=str,
         default="./models/smollm-135m-mlir",
-        help="Directory to save MLIR files"
+        help="Directory to save MLIR files",
     )
     parser.add_argument(
-        "--skip-export",
-        action="store_true",
-        help="Skip ONNX export, use existing model"
+        "--skip-export", action="store_true", help="Skip ONNX export, use existing model"
     )
 
     args = parser.parse_args()

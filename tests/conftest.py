@@ -17,10 +17,8 @@ from polyinfer.backends.registry import get_all_backends
 # =============================================================================
 
 
-@pytest.fixture(scope="session")
-def model_path():
-    """Get path to test model (YOLOv8n)."""
-    # Check common locations
+def _find_yolov8n() -> str | None:
+    """Locate a real yolov8n.onnx, or export one if ultralytics is present."""
     candidates = [
         Path(__file__).parent.parent / "yolov8n.onnx",
         Path(__file__).parent.parent / "examples" / "yolov8n.onnx",
@@ -31,19 +29,94 @@ def model_path():
         if path.exists():
             return str(path)
 
-    # Try to download/export
     try:
         from ultralytics import YOLO
 
         model = YOLO("yolov8n.pt")
         export_path = Path(__file__).parent.parent / "yolov8n.onnx"
         model.export(format="onnx")
-        # Move to expected location
         if Path("yolov8n.onnx").exists():
             Path("yolov8n.onnx").rename(export_path)
         return str(export_path)
-    except ImportError:
-        pytest.skip("No test model available. Install ultralytics: pip install ultralytics")
+    except Exception:
+        return None
+
+
+def _build_synthetic_detector(path: Path) -> str:
+    """Build a small ONNX model with YOLOv8n's input/output signature.
+
+    Input (1, 3, 640, 640) -> output (1, 84, 8400), via a strided conv
+    reshaped and padded to the right width. It is not YOLOv8 and says
+    nothing about detection quality, but it exercises the full load ->
+    infer -> benchmark path with realistic tensor shapes.
+
+    This exists so CI runs real inference. Every generic inference test
+    depended on ultralytics, which is not in the [dev] extra CI installs,
+    so 34 tests skipped and no inference ever ran on a pull request.
+    Pulling ultralytics into CI would drag in torch, so a synthetic stand-in
+    is used instead. Tests that genuinely need YOLOv8 semantics use the
+    `yolov8_path` fixture and still skip.
+    """
+    import numpy as np
+    import onnx
+    from onnx import TensorProto, helper
+
+    rng = np.random.default_rng(0)
+
+    # Dynamic batch, matching how ultralytics exports yolov8n. A fixed batch
+    # would make the stand-in reject batched input that the real model accepts.
+    inp = helper.make_tensor_value_info("images", TensorProto.FLOAT, ["batch", 3, 640, 640])
+    out = helper.make_tensor_value_info("output0", TensorProto.FLOAT, ["batch", 84, 8400])
+
+    # 3 -> 84 channels, kernel 8, stride 8: 640/8 = 80, so 80*80 = 6400.
+    weight = helper.make_tensor(
+        "w",
+        TensorProto.FLOAT,
+        [84, 3, 8, 8],
+        rng.standard_normal(84 * 3 * 8 * 8).astype(np.float32).ravel() * 0.02,
+    )
+    # -1 infers the batch dimension, keeping the graph batch-agnostic.
+    reshape_to = helper.make_tensor("shape", TensorProto.INT64, [3], [-1, 84, 6400])
+    # Pad the last dimension 6400 -> 8400.
+    pads = helper.make_tensor("pads", TensorProto.INT64, [6], [0, 0, 0, 0, 0, 2000])
+
+    nodes = [
+        helper.make_node("Conv", ["images", "w"], ["feat"], kernel_shape=[8, 8], strides=[8, 8]),
+        helper.make_node("Reshape", ["feat", "shape"], ["flat"]),
+        helper.make_node("Pad", ["flat", "pads"], ["output0"], mode="constant"),
+    ]
+
+    graph = helper.make_graph(nodes, "synthetic_detector", [inp], [out], [weight, reshape_to, pads])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    model.ir_version = 8
+    # Deliberately no onnx.checker.check_model(): it walks ONNX's C++ schema
+    # registry, which segfaults on some installations. The backend loading
+    # and running this model is a stronger validity check anyway.
+    onnx.save(model, str(path))
+    return str(path)
+
+
+@pytest.fixture(scope="session")
+def model_path(tmp_path_factory):
+    """A model with YOLOv8n's I/O signature.
+
+    Prefers a real yolov8n.onnx when one is present, and otherwise falls
+    back to a synthetic model with identical tensor shapes so these tests
+    still run in a CPU-only CI environment.
+    """
+    real = _find_yolov8n()
+    if real is not None:
+        return real
+
+    pytest.importorskip("onnx", reason="onnx is needed to build the synthetic test model")
+    synthetic = tmp_path_factory.mktemp("models") / "synthetic_detector.onnx"
+    return _build_synthetic_detector(synthetic)
+
+
+@pytest.fixture(scope="session")
+def is_real_yolov8(model_path) -> bool:
+    """Whether `model_path` is a genuine YOLOv8n rather than the stand-in."""
+    return "synthetic" not in Path(model_path).name
 
 
 @pytest.fixture(scope="session")

@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from polyinfer._devices import device_index, device_type, normalize_device
+
 
 @dataclass
 class InferenceConfig:
@@ -29,36 +31,67 @@ class InferenceConfig:
     extra_options: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        # Normalize device names
-        self.device = self._normalize_device(self.device)
-
-    def _normalize_device(self, device: str) -> str:
-        """Normalize device string to standard format."""
-        device = device.lower().strip()
-
-        # Handle aliases
-        aliases = {
-            "gpu": "cuda:0",
-            "cuda": "cuda:0",
-            "dml": "directml",
-            "directx": "directml",
-        }
-
-        return aliases.get(device, device)
+        # Normalize device names using the canonical alias table.
+        self.device = normalize_device(self.device)
 
     @property
     def device_type(self) -> str:
         """Get the device type (cpu, cuda, directml, vulkan)."""
-        if ":" in self.device:
-            return self.device.split(":")[0]
-        return self.device
+        return device_type(self.device)
 
     @property
     def device_id(self) -> int:
         """Get the device ID (0 for CPU, N for cuda:N)."""
-        if ":" in self.device:
-            return int(self.device.split(":")[1])
-        return 0
+        return device_index(self.device)
+
+    def to_backend_kwargs(self) -> dict[str, Any]:
+        """Translate this config into backend load() keyword arguments.
+
+        Only non-default values are emitted, so a config left at its defaults
+        does not override a backend's own defaults.
+
+        Not every backend honours every option; backends ignore keywords they
+        do not recognise. Coverage today:
+
+        =================== ============================================
+        Field               Honoured by
+        =================== ============================================
+        precision           onnxruntime (TensorRT EP), tensorrt
+        optimization_level  openvino, onnxruntime
+        num_threads         openvino, onnxruntime
+        cache_dir           openvino, onnxruntime (TensorRT EP), iree
+        enable_profiling    onnxruntime
+        extra_options       passed through verbatim
+        =================== ============================================
+
+        Returns:
+            Keyword arguments suitable for ``Backend.load(**kwargs)``.
+        """
+        kwargs: dict[str, Any] = {}
+
+        # Precision. fp32 is the backend default, so emit nothing for it.
+        if self.precision == "fp16":
+            kwargs["fp16"] = True
+        elif self.precision == "int8":
+            kwargs["int8"] = True
+
+        kwargs["optimization_level"] = self.optimization_level
+
+        # 0 means "let the backend decide", which is what omitting it does.
+        if self.num_threads > 0:
+            kwargs["num_threads"] = self.num_threads
+
+        if self.enable_profiling:
+            kwargs["enable_profiling"] = True
+
+        if self.cache_dir is not None:
+            kwargs["cache_dir"] = self.cache_dir
+            # OpenVINO gates caching on a separate flag.
+            kwargs["enable_caching"] = True
+
+        # Caller-supplied options win over anything derived above.
+        kwargs.update(self.extra_options)
+        return kwargs
 
 
 @dataclass

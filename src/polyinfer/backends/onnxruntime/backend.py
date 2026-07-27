@@ -3,20 +3,40 @@
 import numpy as np
 
 from polyinfer._logging import get_logger
-from polyinfer.backends.base import Backend, CompiledModel
+from polyinfer.backends.base import (
+    Backend,
+    CompiledModel,
+    describe_import_error,
+    translate_errors,
+)
+from polyinfer.exceptions import (
+    BackendNotAvailableError,
+    DeviceNotSupportedError,
+    InvalidInputError,
+    ModelLoadError,
+)
 
 _logger = get_logger("backends.onnxruntime")
 
 # Check if onnxruntime is available
+IMPORT_ERROR: str | None = None
 try:
     import onnxruntime as ort
 
     ONNXRUNTIME_AVAILABLE = True
     _logger.debug(f"ONNX Runtime {ort.__version__} available")
-except ImportError:
+except ImportError as e:
+    # Keep the reason. `import onnxruntime` also raises ImportError when the
+    # package IS installed but its native library fails to load, and
+    # discarding this made that case indistinguishable from "not installed".
     ONNXRUNTIME_AVAILABLE = False
     ort = None
-    _logger.debug("ONNX Runtime not installed")
+    IMPORT_ERROR = describe_import_error(
+        e,
+        packages=("onnxruntime",),
+        install_hint="pip install onnxruntime",
+    )
+    _logger.debug(f"ONNX Runtime unavailable: {IMPORT_ERROR}")
 
 
 # Map device types to execution providers
@@ -80,11 +100,15 @@ class ONNXRuntimeModel(CompiledModel):
 
     def __call__(self, *inputs: np.ndarray) -> np.ndarray | tuple[np.ndarray, ...]:
         """Run inference."""
-        # Build input dict
-        input_dict = {name: arr for name, arr in zip(self._input_names, inputs, strict=False)}
+        self._check_input_count(inputs)
 
-        # Run inference
-        outputs = self._session.run(None, input_dict)
+        # Build input dict
+        input_dict = dict(zip(self._input_names, inputs, strict=True))
+
+        # Run inference. ONNX Runtime's exceptions derive straight from
+        # Exception, so translate them into the PolyInfer hierarchy.
+        with translate_errors(self.backend_name):
+            outputs = self._session.run(None, input_dict)
 
         if len(outputs) == 1:
             result: np.ndarray = outputs[0]
@@ -93,8 +117,17 @@ class ONNXRuntimeModel(CompiledModel):
 
     def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Run inference with named inputs/outputs."""
-        outputs = self._session.run(None, inputs)
-        return dict(zip(self._output_names, outputs, strict=False))
+        missing = [name for name in self._input_names if name not in inputs]
+        if missing:
+            raise InvalidInputError(
+                f"Missing required input(s) for {self.backend_name}: {missing}\n"
+                f"Expected: {self._input_names}\n"
+                f"Got: {sorted(inputs)}"
+            )
+
+        with translate_errors(self.backend_name):
+            outputs = self._session.run(None, inputs)
+        return dict(zip(self._output_names, outputs, strict=True))
 
 
 def _verify_tensorrt_ep_works() -> bool:
@@ -200,6 +233,12 @@ class ONNXRuntimeBackend(Backend):
     def is_available(self) -> bool:
         return ONNXRUNTIME_AVAILABLE
 
+    @property
+    def unavailable_reason(self) -> str | None:
+        if ONNXRUNTIME_AVAILABLE:
+            return None
+        return IMPORT_ERROR or "not installed (pip install onnxruntime)"
+
     def get_available_providers(self) -> list[str]:
         """Get list of available execution providers."""
         if not ONNXRUNTIME_AVAILABLE:
@@ -222,7 +261,8 @@ class ONNXRuntimeBackend(Backend):
                 Session options:
                     providers (list): Explicit list of providers to try
                     provider_options (list[dict]): Provider-specific options (parallel to providers)
-                    graph_optimization_level (int): 0=disable, 1=basic, 2=extended, 3=all. Default: 3
+                    graph_optimization_level (int): 0=disable, 1=basic,
+                        2=extended, anything else=all. Default: all.
                     intra_op_num_threads (int): Threads for intra-op parallelism
                     inter_op_num_threads (int): Threads for inter-op parallelism
                     enable_mem_pattern (bool): Enable memory pattern optimization. Default: True
@@ -264,7 +304,9 @@ class ONNXRuntimeBackend(Backend):
         """
         if not ONNXRUNTIME_AVAILABLE:
             _logger.error("ONNX Runtime not installed")
-            raise RuntimeError("onnxruntime not installed. Run: pip install onnxruntime")
+            raise BackendNotAvailableError(
+                f"onnxruntime is not available: {self.unavailable_reason}"
+            )
 
         _logger.debug(f"Loading model: {model_path}")
 
@@ -293,7 +335,7 @@ class ONNXRuntimeBackend(Backend):
 
         if not providers:
             _logger.error(f"No execution provider available for device '{device}'")
-            raise RuntimeError(
+            raise DeviceNotSupportedError(
                 f"No execution provider available for device '{device}'. "
                 f"Available: {list(available)}"
             )
@@ -361,6 +403,13 @@ class ONNXRuntimeBackend(Backend):
         # Session options
         sess_options = ort.SessionOptions()
 
+        # Accept the generic option names produced by InferenceConfig, so a
+        # config is not silently ignored. Backend-specific names win.
+        if "graph_optimization_level" not in kwargs and "optimization_level" in kwargs:
+            kwargs["graph_optimization_level"] = kwargs["optimization_level"]
+        if "intra_op_num_threads" not in kwargs and kwargs.get("num_threads", 0) > 0:
+            kwargs["intra_op_num_threads"] = kwargs["num_threads"]
+
         # Graph optimization
         opt_level = kwargs.get("graph_optimization_level", 99)
         if opt_level == 0:
@@ -384,6 +433,10 @@ class ONNXRuntimeBackend(Backend):
         if "enable_cpu_mem_arena" in kwargs:
             sess_options.enable_cpu_mem_arena = kwargs["enable_cpu_mem_arena"]
 
+        # Profiling
+        if kwargs.get("enable_profiling", False):
+            sess_options.enable_profiling = True
+
         # Create session with fallback handling for TensorRT EP issues
         # TensorRT EP can fail during session creation even if it shows as available
         # (e.g., RegisterTensorRTPluginsAsCustomOps error). In this case, fall back
@@ -396,7 +449,11 @@ class ONNXRuntimeBackend(Backend):
                 providers=providers,
                 provider_options=provider_options if provider_options else None,
             )
-        except RuntimeError as e:
+        # Catch Exception, not RuntimeError: ONNX Runtime's own exception
+        # types (Fail, InvalidArgument, ...) derive directly from Exception,
+        # so a RuntimeError-only handler missed almost every real failure -
+        # including the TensorRT EP errors this fallback exists to handle.
+        except Exception as e:
             error_msg = str(e)
             # Check if this is a TensorRT-specific error and we can fall back
             if "TensorRT" in error_msg or "RegisterTensorRTPluginsAsCustomOps" in error_msg:
@@ -425,21 +482,30 @@ class ONNXRuntimeBackend(Backend):
                             UserWarning,
                             stacklevel=2,
                         )
-                        session = ort.InferenceSession(
-                            model_path,
-                            sess_options=sess_options,
-                            providers=fallback_providers,
-                            provider_options=fallback_options,
-                        )
+                        try:
+                            session = ort.InferenceSession(
+                                model_path,
+                                sess_options=sess_options,
+                                providers=fallback_providers,
+                                provider_options=fallback_options,
+                            )
+                        except Exception as fallback_error:
+                            raise ModelLoadError(
+                                f"Failed to load {model_path} on {fallback_providers[0]} "
+                                f"after TensorRT EP failed: {fallback_error}"
+                            ) from fallback_error
                     else:
                         _logger.error(f"TensorRT EP failed with no fallback: {error_msg}")
-                        raise
+                        raise ModelLoadError(
+                            f"TensorRT EP failed loading {model_path} and no "
+                            f"fallback provider is available: {error_msg}"
+                        ) from e
                 else:
                     _logger.error(f"Session creation failed: {error_msg}")
-                    raise
+                    raise ModelLoadError(f"Failed to load {model_path}: {error_msg}") from e
             else:
                 _logger.error(f"Session creation failed: {error_msg}")
-                raise
+                raise ModelLoadError(f"Failed to load {model_path}: {error_msg}") from e
 
         # Get the actual provider being used
         active_provider = session.get_providers()[0]

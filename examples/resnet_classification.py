@@ -14,8 +14,8 @@ Run: python examples/resnet_classification.py
 """
 
 import argparse
-from pathlib import Path
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -152,11 +152,13 @@ def classify_image(model, image: np.ndarray, top_k: int = 5) -> list:
 
     results = []
     for idx in top_indices:
-        results.append({
-            "class_id": int(idx),
-            "class_name": labels[idx],
-            "probability": float(probs[idx]),
-        })
+        results.append(
+            {
+                "class_id": int(idx),
+                "class_name": labels[idx],
+                "probability": float(probs[idx]),
+            }
+        )
 
     return results, elapsed
 
@@ -183,7 +185,7 @@ def run_image_classification(args):
     print(f"Inference time: {elapsed:.2f} ms")
     print("\nTop-5 predictions:")
     for i, r in enumerate(results, 1):
-        print(f"  {i}. {r['class_name']:30s} {r['probability']*100:5.2f}%")
+        print(f"  {i}. {r['class_name']:30s} {r['probability'] * 100:5.2f}%")
 
 
 def run_webcam_classification(args):
@@ -239,7 +241,7 @@ def run_webcam_classification(args):
             )
 
             for i, r in enumerate(results):
-                text = f"{r['class_name']}: {r['probability']*100:.1f}%"
+                text = f"{r['class_name']}: {r['probability'] * 100:.1f}%"
                 cv2.putText(
                     frame,
                     text,
@@ -278,7 +280,9 @@ def run_benchmark(args):
 
 def main():
     parser = argparse.ArgumentParser(description="ResNet Classification with PolyInfer")
-    parser.add_argument("--model", default="resnet18", choices=["resnet18", "resnet34", "resnet50", "resnet101"])
+    parser.add_argument(
+        "--model", default="resnet18", choices=["resnet18", "resnet34", "resnet50", "resnet101"]
+    )
     parser.add_argument("--device", default="cpu", help="Device: cpu, cuda, directml")
     parser.add_argument("--backend", default=None, help="Backend: onnxruntime, openvino, tensorrt")
     parser.add_argument("--image", type=str, help="Path to image file")

@@ -179,11 +179,11 @@ def register_all():
     _logger.debug("Backend registration complete")
 
 
-def _register_lazy_iree():
-    """Register a lazy-loading IREE backend wrapper.
+def _make_lazy_iree_backend():
+    """Build the lazy IREE wrapper class, without registering it.
 
-    This is used on Linux to avoid importing iree.runtime at registration time,
-    as it might load CUDA libraries that conflict with PyTorch.
+    Kept separate from registration so the wrapper can be tested on any
+    platform, not only the Linux path where it is actually installed.
     """
     from polyinfer.backends.base import Backend
 
@@ -250,16 +250,43 @@ def _register_lazy_iree():
             self._ensure_loaded()
             return self._real_backend.load(model_path, device, **kwargs)
 
+        def __getattr__(self, item: str):
+            """Forward any other public attribute to the real backend.
+
+            This wrapper previously implemented only the abstract Backend
+            surface plus load(), so everything else the IREE backend exposes -
+            emit_mlir, compile_mlir, load_vmfb, list_vulkan_targets,
+            detect_vulkan_devices - raised AttributeError. Since lazy loading
+            is used on Linux, the entire MLIR API was unreachable there via
+            pi.get_backend("iree"), including the load_vmfb() call the README
+            documents.
+
+            Underscore-prefixed names are excluded so that attribute lookups
+            during construction cannot recurse into _ensure_loaded().
+            """
+            if item.startswith("_"):
+                raise AttributeError(item)
+            self._ensure_loaded()
+            return getattr(self._real_backend, item)
+
+    return LazyIREEBackend
+
+
+def _register_lazy_iree():
+    """Register a lazy-loading IREE backend wrapper.
+
+    This is used on Linux to avoid importing iree.runtime at registration time,
+    as it might load CUDA libraries that conflict with PyTorch.
+    """
     with contextlib.suppress(Exception):
-        register_backend("iree", LazyIREEBackend)
+        register_backend("iree", _make_lazy_iree_backend())
 
 
-def _register_lazy_onnxruntime():
-    """Register a lazy-loading ONNX Runtime backend wrapper.
+def _make_lazy_onnxruntime_backend():
+    """Build the lazy ONNX Runtime wrapper class, without registering it.
 
-    This is used when we can't safely import onnxruntime at registration time
-    (e.g., on Linux when PyTorch is already loaded). The actual import happens
-    when the backend is first used.
+    Kept separate from registration so the wrapper can be tested on any
+    platform, not only the Linux path where it is actually installed.
     """
     from polyinfer.backends.base import Backend
 
@@ -352,7 +379,29 @@ def _register_lazy_onnxruntime():
             self._ensure_loaded()
             return self._real_backend.load(model_path, device, **kwargs)
 
+        def __getattr__(self, item: str):
+            """Forward any other public attribute to the real backend.
+
+            Without this, methods such as get_available_providers() are
+            missing from the lazy wrapper and raise AttributeError on Linux,
+            where lazy loading is used.
+            """
+            if item.startswith("_"):
+                raise AttributeError(item)
+            self._ensure_loaded()
+            return getattr(self._real_backend, item)
+
+    return LazyONNXRuntimeBackend
+
+
+def _register_lazy_onnxruntime():
+    """Register a lazy-loading ONNX Runtime backend wrapper.
+
+    This is used when we can't safely import onnxruntime at registration time
+    (e.g., on Linux when PyTorch is already loaded). The actual import happens
+    when the backend is first used.
+    """
     # TODO: Narrow exception suppression to specific types once register_backend()
     #   error conditions are documented.
     with contextlib.suppress(Exception):
-        register_backend("onnxruntime", LazyONNXRuntimeBackend)
+        register_backend("onnxruntime", _make_lazy_onnxruntime_backend())

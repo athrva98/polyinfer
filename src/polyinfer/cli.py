@@ -29,6 +29,10 @@ def cmd_info(args):
             if backend_info.get("available"):
                 devices = backend_info.get("devices", [])
                 print(f"    Devices: {', '.join(devices)}")
+            else:
+                reason = backend_info.get("unavailable_reason") or backend_info.get("error")
+                if reason:
+                    print(f"    Reason: {reason}")
 
         print("\nAvailable Devices:")
         for device in info["devices"]:
@@ -109,7 +113,9 @@ def main():
         prog="polyinfer",
         description="PolyInfer - Unified ML inference across multiple backends",
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    from polyinfer import __version__
+
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 

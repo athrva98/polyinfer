@@ -12,15 +12,13 @@ Run: python examples/quickstart.py
 from pathlib import Path
 
 import numpy as np
+
 import polyinfer as pi
 
 
 def has_cuda() -> bool:
     """Check if CUDA is available via any backend."""
-    for device in pi.list_devices():
-        if device.device_type == "cuda":
-            return True
-    return False
+    return any(device.device_type == "cuda" for device in pi.list_devices())
 
 
 def main():
@@ -153,16 +151,20 @@ def main():
                 # Run a single inference first to catch device errors early
                 _ = m(input_data)
                 result = m.benchmark(input_data, warmup=10, iterations=50)
-                all_results.append({
-                    "backend": backend_name,
-                    "device": device,
-                    "mean_ms": result["mean_ms"],
-                    "fps": result["fps"],
-                })
-                print(f"   {backend_name:15} ({device:10}): {result['mean_ms']:8.2f} ms ({result['fps']:7.1f} FPS)")
+                all_results.append(
+                    {
+                        "backend": backend_name,
+                        "device": device,
+                        "mean_ms": result["mean_ms"],
+                        "fps": result["fps"],
+                    }
+                )
+                print(
+                    f"   {backend_name:15} ({device:10}): {result['mean_ms']:8.2f} ms ({result['fps']:7.1f} FPS)"
+                )
             except Exception as e:
                 # Truncate long error messages (e.g., OpenVINO errors)
-                err_msg = str(e).split('\n')[0][:60]
+                err_msg = str(e).split("\n")[0][:60]
                 print(f"   {backend_name:15} ({device:10}): Error - {err_msg}")
 
     print()
@@ -179,7 +181,9 @@ def main():
         for i, r in enumerate(all_results):
             speedup = r["mean_ms"] / fastest
             marker = " <-- FASTEST" if i == 0 else f" ({speedup:.1f}x slower)"
-            print(f"   {r['backend']:15} ({r['device']:10}): {r['mean_ms']:8.2f} ms ({r['fps']:7.1f} FPS){marker}")
+            print(
+                f"   {r['backend']:15} ({r['device']:10}): {r['mean_ms']:8.2f} ms ({r['fps']:7.1f} FPS){marker}"
+            )
 
         print()
 
@@ -193,7 +197,9 @@ def main():
             speedup = best_cpu["mean_ms"] / best_gpu["mean_ms"]
             print(f"   GPU Speedup: {speedup:.1f}x faster than CPU")
             print(f"   Best CPU: {best_cpu['backend']} ({best_cpu['mean_ms']:.2f} ms)")
-            print(f"   Best GPU: {best_gpu['backend']} on {best_gpu['device']} ({best_gpu['mean_ms']:.2f} ms)")
+            print(
+                f"   Best GPU: {best_gpu['backend']} on {best_gpu['device']} ({best_gpu['mean_ms']:.2f} ms)"
+            )
 
     print()
     print("Done!")

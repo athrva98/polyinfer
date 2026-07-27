@@ -4,12 +4,18 @@ from pathlib import Path
 
 import numpy as np
 
+from polyinfer._devices import normalize_device
 from polyinfer._logging import get_logger
 from polyinfer.backends.base import CompiledModel
 from polyinfer.config import InferenceConfig
 from polyinfer.discovery import get_backend, select_backend
+from polyinfer.exceptions import DeviceNotSupportedError, ModelLoadError, PolyInferError
 
 _logger = get_logger("model")
+
+# Sentinel for "caller did not specify a device", so a config can supply one
+# without clobbering an explicit argument.
+_DEFAULT_DEVICE = "cpu"
 
 
 class Model:
@@ -27,7 +33,7 @@ class Model:
     def __init__(
         self,
         model_path: str | Path,
-        device: str = "cpu",
+        device: str = _DEFAULT_DEVICE,
         backend: str | None = None,
         config: InferenceConfig | None = None,
         **kwargs,
@@ -38,7 +44,11 @@ class Model:
             model_path: Path to ONNX model file
             device: Target device (cpu, cuda, cuda:0, directml, etc.)
             backend: Specific backend to use (None for auto-select)
-            config: Inference configuration
+            config: Inference configuration. Its options are translated into
+                backend keyword arguments via
+                :meth:`InferenceConfig.to_backend_kwargs`. Explicit keyword
+                arguments take precedence over the config, and the config's
+                device is used only when no device argument was given.
             **kwargs: Backend-specific options
         """
         self.model_path = Path(model_path)
@@ -48,11 +58,17 @@ class Model:
 
         _logger.debug(f"Loading model: {model_path}")
 
-        # Merge config with kwargs
+        # Merge config with kwargs.
+        #
+        # Precedence: explicit keyword arguments > config > defaults. The
+        # config's device only applies when the caller did not pass one, so
+        # `load(path, device="cuda", config=cfg)` no longer has its device
+        # silently replaced by the config's default of "cpu".
         if config:
-            device = config.device
-            backend = config.backend or backend
-            kwargs.update(config.extra_options)
+            if device == _DEFAULT_DEVICE:
+                device = config.device
+            backend = backend or config.backend
+            kwargs = {**config.to_backend_kwargs(), **kwargs}
 
         # Normalize device and backend
         device = self._normalize_device(device)
@@ -65,7 +81,7 @@ class Model:
             self._backend = get_backend(backend)
             if not self._backend.supports_device(device):
                 _logger.error(f"Backend '{backend}' does not support device '{device}'")
-                raise ValueError(
+                raise DeviceNotSupportedError(
                     f"Backend '{backend}' does not support device '{device}'. "
                     f"Supported: {self._backend.supported_devices}"
                 )
@@ -77,33 +93,34 @@ class Model:
             f"Selected backend: {self._backend.name} (priority: {self._backend.priority})"
         )
 
-        # Load the model
+        # Load the model. Any backend-specific failure becomes a
+        # ModelLoadError so callers can handle load failures uniformly; the
+        # original exception stays available as __cause__.
         _logger.debug(f"Loading with device: {device}")
-        self._model: CompiledModel = self._backend.load(
-            str(self.model_path),
-            device=device,
-            **kwargs,
-        )
+        try:
+            self._model: CompiledModel = self._backend.load(
+                str(self.model_path),
+                device=device,
+                **kwargs,
+            )
+        except (PolyInferError, FileNotFoundError):
+            raise
+        except Exception as e:
+            raise ModelLoadError(
+                f"Failed to load {self.model_path.name} with backend "
+                f"'{self._backend.name}' on device '{device}': "
+                f"{type(e).__name__}: {e}"
+            ) from e
 
         _logger.info(f"Model loaded: {self.model_path.name} on {self._model.backend_name}")
 
     @staticmethod
     def _normalize_device(device: str) -> str:
-        """Normalize device string."""
-        device = device.lower().strip()
-        # Aliases
-        aliases = {
-            "gpu": "cuda",
-            "nvidia": "cuda",
-            "trt": "tensorrt",
-        }
-        # Handle base device without index
-        base = device.split(":")[0]
-        if base in aliases:
-            if ":" in device:
-                return f"{aliases[base]}:{device.split(':')[1]}"
-            return aliases[base]
-        return device
+        """Normalize device string.
+
+        Delegates to the single canonical alias table in polyinfer._devices.
+        """
+        return normalize_device(device)
 
     @staticmethod
     def _normalize_backend(backend: str | None, device: str) -> tuple[str | None, str]:
@@ -173,6 +190,10 @@ class Model:
 
         Returns:
             Output array(s)
+
+        Raises:
+            InvalidInputError: If the inputs do not match the model.
+            InferenceError: If the backend fails during inference.
         """
         return self._model(*inputs)
 
@@ -184,6 +205,10 @@ class Model:
 
         Returns:
             Dictionary mapping output names to numpy arrays
+
+        Raises:
+            InvalidInputError: If a required input is missing.
+            InferenceError: If the backend fails during inference.
         """
         return self._model.run(inputs)
 

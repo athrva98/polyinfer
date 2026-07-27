@@ -11,6 +11,9 @@ from polyinfer.backends.registry import (
     get_best_backend,
 )
 from polyinfer.backends.registry import (
+    get_unavailable_backends as _get_unavailable_backends,
+)
+from polyinfer.backends.registry import (
     list_backends as _list_backends,
 )
 
@@ -60,6 +63,28 @@ def get_backend(name: str) -> Backend:
         >>> model = backend.load('model.onnx', device='cpu')
     """
     return _get_backend(name)
+
+
+def backend_errors() -> dict[str, str]:
+    """Return why each unavailable backend is unavailable.
+
+    Useful when `list_backends()` comes back empty or shorter than expected.
+    A backend that is installed but whose native libraries fail to load
+    reports the underlying import error rather than looking identical to one
+    that was never installed.
+
+    Returns:
+        Mapping of backend name to the reason it is unavailable. Empty if
+        every registered backend is available.
+
+    Example:
+        >>> import polyinfer as pi
+        >>> pi.list_backends()
+        []
+        >>> pi.backend_errors()
+        {'onnxruntime': 'installed but failed to import: DLL load failed ...'}
+    """
+    return _get_unavailable_backends()
 
 
 def is_available(backend_name: str) -> bool:
@@ -199,6 +224,14 @@ def system_info() -> dict:
                     "available": False,
                     "error": str(e),
                 }
+
+    # Record why unavailable backends are unavailable, so `polyinfer info`
+    # can distinguish "not installed" from "installed but broken".
+    for name, reason in _get_unavailable_backends().items():
+        if isinstance(backends_dict, dict) and name in backends_dict:
+            entry = backends_dict[name]
+            if isinstance(entry, dict):
+                entry.setdefault("unavailable_reason", reason)
 
     # Device info
     devices_list = info["devices"]

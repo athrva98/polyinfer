@@ -43,11 +43,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install ruff mypy
 
+      # examples/ and scripts/ were previously unlinted, and had accumulated
+      # 21 ruff violations including unused variables and bare zip() calls.
       - name: Run ruff linter
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ examples/ scripts/
 
       - name: Run ruff formatter check
-        run: ruff format --check src/ tests/
+        run: ruff format --check src/ tests/ examples/ scripts/
+
+      - name: Byte-compile examples and scripts
+        run: python -m compileall -q examples/ scripts/
 
       - name: Install package for type checking
         run: pip install -e .
@@ -89,7 +94,21 @@ jobs:
           pip install -e ".[dev]"
 
       - name: List available backends
-        run: python -c "import polyinfer as pi; print('Available backends:', pi.list_backends()); print('Available devices:', pi.list_devices())"
+        run: python -c "import polyinfer as pi; print('Available backends:', pi.list_backends()); print('Available devices:', pi.list_devices()); print('Unavailable:', pi.backend_errors())"
+
+      # Fail loudly if no backend is usable. Otherwise every inference test
+      # skips and the job still reports success, which is how a green CI
+      # coexisted with zero inference coverage.
+      - name: Assert at least one backend is available
+        run: |
+          python -c "
+          import sys, polyinfer as pi
+          backends = pi.list_backends()
+          if not backends:
+              print('No backends available:', pi.backend_errors())
+              sys.exit(1)
+          print('OK, backends available:', backends)
+          "
 
       - name: Run CPU-only tests
         run: |
@@ -130,12 +149,30 @@ jobs:
           pip install -e "${{ matrix.install }}"
 
       - name: List available backends
-        run: python -c "import polyinfer as pi; print('Available backends:', pi.list_backends()); print('Available devices:', pi.list_devices())"
+        run: python -c "import polyinfer as pi; print('Available backends:', pi.list_backends()); print('Unavailable:', pi.backend_errors())"
 
-      - name: Run ${{ matrix.backend }} tests
+      # The backend must actually be importable, otherwise this job silently
+      # tested nothing. Previously the whole job was continue-on-error, so a
+      # completely broken backend could not fail CI.
+      - name: Assert ${{ matrix.backend }} is available
+        run: |
+          python -c "
+          import sys, polyinfer as pi
+          if '${{ matrix.backend }}' not in pi.list_backends():
+              print('${{ matrix.backend }} unavailable:', pi.backend_errors())
+              sys.exit(1)
+          print('${{ matrix.backend }} is available')
+          "
+
+      # The full CPU suite, which exercises this backend through the shared
+      # tests, plus the backend's own marker.
+      - name: Run CPU suite with ${{ matrix.backend }} installed
         run: |
           pytest tests/ -v --tb=short -m "not (cuda or tensorrt or directml or intel_gpu or npu or vulkan or benchmark or slow)"
-        continue-on-error: true  # Backend tests are optional on CPU runners
+
+      - name: Run ${{ matrix.backend }}-marked tests
+        run: |
+          pytest tests/ -v --tb=short -m "${{ matrix.marker }} and not (cuda or tensorrt or directml or intel_gpu or npu or vulkan or benchmark or slow)"
 
   # ============================================
   # Build & Package Verification
@@ -211,7 +248,7 @@ jobs:
     name: CI Success
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [lint, test, build]
+    needs: [lint, test, test-backends, build]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -222,6 +259,13 @@ jobs:
           fi
           if [[ "${{ needs.test.result }}" != "success" ]]; then
             echo "Test job failed"
+            exit 1
+          fi
+          # test-backends is now gating. It was continue-on-error and absent
+          # from this list, so an entirely broken OpenVINO or IREE backend
+          # could not turn CI red.
+          if [[ "${{ needs.test-backends.result }}" != "success" ]]; then
+            echo "Backend test job failed"
             exit 1
           fi
           if [[ "${{ needs.build.result }}" != "success" ]]; then

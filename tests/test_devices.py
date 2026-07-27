@@ -205,6 +205,93 @@ class TestVulkanDevice:
         assert output is not None
 
 
+class TestDeviceAliases:
+    """Test the canonical alias table directly.
+
+    These are pure-function tests with no model or hardware dependency, so
+    unlike TestDeviceNormalization below they always run in CI.
+    """
+
+    # Mirrors the "Device Normalization" table in README.md. If you add an
+    # alias, update both.
+    DOCUMENTED_ALIASES = [
+        ("gpu", "cuda"),
+        ("nvidia", "cuda"),
+        ("trt", "tensorrt"),
+        ("dml", "directml"),
+        ("directx", "directml"),
+        ("igpu", "intel-gpu"),
+        ("intel-igpu", "intel-gpu"),
+        ("intel_igpu", "intel-gpu"),
+        ("intel_gpu", "intel-gpu"),
+        ("amd", "rocm"),
+        ("metal", "coreml"),
+    ]
+
+    @pytest.mark.parametrize("alias,expected", DOCUMENTED_ALIASES)
+    def test_documented_alias_resolves(self, alias, expected):
+        """Every alias documented in the README must actually be implemented."""
+        from polyinfer._devices import normalize_device
+
+        assert normalize_device(alias) == expected
+
+    @pytest.mark.parametrize("alias,expected", DOCUMENTED_ALIASES)
+    def test_alias_preserves_device_index(self, alias, expected):
+        """Aliases must keep their index suffix: 'gpu:1' -> 'cuda:1'."""
+        from polyinfer._devices import normalize_device
+
+        assert normalize_device(f"{alias}:1") == f"{expected}:1"
+
+    @pytest.mark.parametrize("canonical", ["cpu", "cuda", "tensorrt", "directml", "npu", "vulkan"])
+    def test_canonical_names_are_stable(self, canonical):
+        """Normalizing an already-canonical name is a no-op."""
+        from polyinfer._devices import normalize_device
+
+        assert normalize_device(canonical) == canonical
+
+    def test_case_and_whitespace_insensitive(self):
+        from polyinfer._devices import normalize_device
+
+        assert normalize_device("  GPU  ") == "cuda"
+        assert normalize_device("Cpu") == "cpu"
+        assert normalize_device("Intel-IGPU:0") == "intel-gpu:0"
+
+    def test_unknown_device_passes_through(self):
+        """Unknown devices are left alone so backends can report the error."""
+        from polyinfer._devices import normalize_device
+
+        assert normalize_device("nonexistent_device_xyz") == "nonexistent_device_xyz"
+
+    def test_model_and_config_agree(self):
+        """Model and InferenceConfig must normalize identically.
+
+        They previously had separate tables that disagreed: Model mapped
+        'gpu' -> 'cuda' while InferenceConfig mapped it to 'cuda:0', and
+        only InferenceConfig knew about 'dml'.
+        """
+        from polyinfer.config import InferenceConfig
+        from polyinfer.model import Model
+
+        for alias, _ in self.DOCUMENTED_ALIASES:
+            assert Model._normalize_device(alias) == InferenceConfig(device=alias).device, (
+                f"Model and InferenceConfig disagree on {alias!r}"
+            )
+
+    def test_device_type_and_index_helpers(self):
+        from polyinfer._devices import device_index, device_type
+
+        assert device_type("cuda:1") == "cuda"
+        assert device_type("cpu") == "cpu"
+        assert device_index("cuda:1") == 1
+        assert device_index("cuda") == 0
+
+    def test_invalid_device_index_raises(self):
+        from polyinfer._devices import device_index
+
+        with pytest.raises(ValueError):
+            device_index("cuda:notanumber")
+
+
 class TestDeviceNormalization:
     """Test device string normalization."""
 

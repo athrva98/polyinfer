@@ -6,7 +6,6 @@ across different backends and models.
 Run: python examples/compare_backends.py
 """
 
-import numpy as np
 from pathlib import Path
 
 import polyinfer as pi
@@ -26,8 +25,18 @@ def export_models():
         model_configs = [
             ("resnet18", tv_models.resnet18, tv_models.ResNet18_Weights.DEFAULT, (1, 3, 224, 224)),
             ("resnet50", tv_models.resnet50, tv_models.ResNet50_Weights.DEFAULT, (1, 3, 224, 224)),
-            ("mobilenet_v2", tv_models.mobilenet_v2, tv_models.MobileNet_V2_Weights.DEFAULT, (1, 3, 224, 224)),
-            ("efficientnet_b0", tv_models.efficientnet_b0, tv_models.EfficientNet_B0_Weights.DEFAULT, (1, 3, 224, 224)),
+            (
+                "mobilenet_v2",
+                tv_models.mobilenet_v2,
+                tv_models.MobileNet_V2_Weights.DEFAULT,
+                (1, 3, 224, 224),
+            ),
+            (
+                "efficientnet_b0",
+                tv_models.efficientnet_b0,
+                tv_models.EfficientNet_B0_Weights.DEFAULT,
+                (1, 3, 224, 224),
+            ),
         ]
 
         for name, model_fn, weights, input_shape in model_configs:
@@ -44,7 +53,9 @@ def export_models():
                 model.eval()
                 dummy = torch.randn(*input_shape)
                 torch.onnx.export(
-                    model, dummy, str(onnx_path),
+                    model,
+                    dummy,
+                    str(onnx_path),
                     input_names=["input"],
                     output_names=["output"],
                     opset_version=17,
@@ -88,7 +99,7 @@ def export_models():
 
 def compare_model(name: str, onnx_path: str, input_shape: tuple, device: str = "cpu"):
     """Compare backends for a single model."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Model: {name}")
     print(f"Input: {input_shape}")
     print(f"Device: {device}")

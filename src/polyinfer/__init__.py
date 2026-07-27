@@ -24,7 +24,10 @@ Basic usage:
     mlir = pi.export_mlir("model.onnx", "model.mlir")
 """
 
-__version__ = "0.1.0"
+# Single source of truth for the package version. `pyproject.toml` declares
+# `dynamic = ["version"]` and hatchling reads the value from this assignment,
+# so this is the only place the version needs to be updated.
+__version__ = "0.2.0"
 
 # Auto-setup NVIDIA libraries BEFORE importing anything else
 # This ensures CUDA, cuDNN, TensorRT DLLs are findable
@@ -42,10 +45,24 @@ from polyinfer._logging import (
 from polyinfer.compare import benchmark, compare
 from polyinfer.config import InferenceConfig
 from polyinfer.discovery import (
+    backend_errors,
     get_backend,
     is_available,
     list_backends,
     list_devices,
+)
+from polyinfer.exceptions import (
+    BackendError,
+    BackendNotAvailableError,
+    BackendNotFoundError,
+    CompilationError,
+    DeviceNotSupportedError,
+    InferenceError,
+    InvalidInputError,
+    InvalidOptionError,
+    ModelLoadError,
+    PolyInferError,
+    QuantizationError,
 )
 from polyinfer.mlir import MLIROutput, compile_mlir, export_mlir
 from polyinfer.model import Model, load
@@ -72,6 +89,7 @@ __all__ = [
     "list_devices",
     "get_backend",
     "is_available",
+    "backend_errors",
     # Config
     "InferenceConfig",
     # Utilities
@@ -96,6 +114,18 @@ __all__ = [
     "fix_onnxruntime_conflict",
     "get_nvidia_info",
     "setup_tensorrt_paths",
+    # Exceptions
+    "PolyInferError",
+    "BackendError",
+    "BackendNotFoundError",
+    "BackendNotAvailableError",
+    "DeviceNotSupportedError",
+    "InvalidOptionError",
+    "ModelLoadError",
+    "CompilationError",
+    "InferenceError",
+    "InvalidInputError",
+    "QuantizationError",
     # Logging
     "get_logger",
     "set_log_level",

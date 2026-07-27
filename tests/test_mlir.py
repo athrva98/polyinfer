@@ -11,8 +11,11 @@ import polyinfer as pi
 # Check if IREE is available
 IREE_AVAILABLE = pi.is_available("iree")
 
-# Skip all tests in this module if IREE is not available
-pytestmark = pytest.mark.skipif(not IREE_AVAILABLE, reason="IREE backend not available")
+# Applied per-class rather than module-wide. A module-level pytestmark also
+# skipped the sections explicitly labelled "No IREE runtime required"
+# (compile-option and Vulkan-target tests), which are pure data assertions
+# and should run everywhere.
+requires_iree = pytest.mark.skipif(not IREE_AVAILABLE, reason="IREE backend not available")
 
 # =============================================================================
 # Fixtures
@@ -49,6 +52,7 @@ def temp_dir():
 # =============================================================================
 
 
+@requires_iree
 class TestMLIRExport:
     """Tests for export_mlir functionality."""
 
@@ -136,6 +140,7 @@ class TestMLIRExport:
 # =============================================================================
 
 
+@requires_iree
 class TestMLIRCompilation:
     """Tests for compile_mlir functionality."""
 
@@ -197,6 +202,7 @@ class TestMLIRCompilation:
 # =============================================================================
 
 
+@requires_iree
 class TestMLIRWorkflow:
     """End-to-end tests for MLIR workflow."""
 
@@ -263,6 +269,7 @@ class TestMLIRWorkflow:
 # =============================================================================
 
 
+@requires_iree
 class TestIREEBackendMethods:
     """Tests for IREEBackend emit_mlir and compile_mlir methods."""
 
@@ -308,6 +315,7 @@ class TestIREEBackendMethods:
 # =============================================================================
 
 
+@requires_iree
 class TestMLIRContent:
     """Tests for MLIR content analysis."""
 
@@ -349,6 +357,55 @@ try:
     IREE_MODULE_AVAILABLE = True
 except ImportError:
     IREE_MODULE_AVAILABLE = False
+
+
+class TestPublicMLIRSignatures:
+    """The public MLIR wrappers must accept every documented option.
+
+    pi.compile_mlir() previously forwarded only opt_level, so the
+    vulkan_target and data_tiling calls shown in the README raised
+    TypeError. These assertions hold whether or not IREE is installed:
+    without it the call fails with RuntimeError from the availability
+    check, which still proves the signature accepted the argument.
+    """
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"vulkan_target": "rdna3"},
+            {"data_tiling": True},
+            {"extra_flags": ["--some-flag"]},
+            {"opt_level": 3, "vulkan_target": "rtx4090", "data_tiling": True},
+        ],
+    )
+    def test_compile_mlir_accepts_documented_options(self, kwargs, temp_dir):
+        mlir_file = temp_dir / "model.mlir"
+        mlir_file.write_text("// placeholder", encoding="utf-8")
+
+        try:
+            pi.compile_mlir(mlir_file, device="vulkan", **kwargs)
+        except TypeError as e:
+            pytest.fail(f"compile_mlir rejected documented option {kwargs}: {e}")
+        except (RuntimeError, FileNotFoundError):
+            pass  # IREE missing or compilation failed - signature was fine.
+
+    def test_export_mlir_accepts_opset_version(self, temp_dir):
+        """export_mlir must expose opset_version, as the docs advise."""
+        try:
+            pi.export_mlir("nonexistent.onnx", temp_dir / "o.mlir", opset_version=17)
+        except TypeError as e:
+            pytest.fail(f"export_mlir rejected opset_version: {e}")
+        except (RuntimeError, FileNotFoundError):
+            pass
+
+    def test_compile_mlir_signature_has_no_silent_option_drop(self):
+        """compile_mlir must forward **kwargs rather than a fixed subset."""
+        import inspect
+
+        params = inspect.signature(pi.compile_mlir).parameters
+        assert any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()), (
+            "compile_mlir must accept **kwargs so backend options reach IREE"
+        )
 
 
 @pytest.mark.skipif(not IREE_MODULE_AVAILABLE, reason="IREE backend module not available")
@@ -526,6 +583,7 @@ class TestVulkanTargets:
 # =============================================================================
 
 
+@requires_iree
 class TestMLIRExportWithOptions:
     """Tests for MLIR export with compile options via backend methods."""
 
@@ -606,12 +664,22 @@ class TestIREEErrorHandling:
         assert error.suggestions == []
         assert "Simple error" in str(error)
 
+    @requires_iree
     def test_emit_mlir_file_not_found_chained(self, temp_dir):
         """Test that emit_mlir raises properly chained exceptions."""
         backend = pi.get_backend("iree")
 
         with pytest.raises(FileNotFoundError):
             backend.emit_mlir("nonexistent_model.onnx", temp_dir / "out.mlir")
+
+    def test_export_mlir_reports_missing_file_before_backend(self):
+        """A missing model must report the file, not the missing backend.
+
+        Input validation now happens before the IREE availability check, so
+        this holds whether or not IREE is installed.
+        """
+        with pytest.raises(FileNotFoundError):
+            pi.export_mlir("nonexistent_model.onnx")
 
     def test_compile_mlir_file_not_found_chained(self, temp_dir):
         """Test that compile_mlir raises properly chained exceptions."""

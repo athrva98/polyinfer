@@ -19,12 +19,10 @@ Usage:
 """
 
 import argparse
-import os
 import platform
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 
@@ -44,7 +42,9 @@ def get_venv_paths(venv_dir: Path) -> dict:
         }
 
 
-def run_command(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
+def run_command(
+    cmd: list[str], cwd: Path | None = None, check: bool = True
+) -> subprocess.CompletedProcess:
     """Run a command and print output."""
     print(f"  $ {' '.join(str(c) for c in cmd)}")
     result = subprocess.run(
@@ -68,12 +68,12 @@ def run_command(cmd: list[str], cwd: Path | None = None, check: bool = True) -> 
 
 def create_venv(venv_dir: Path) -> dict:
     """Create a fresh virtual environment."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Creating virtual environment: {venv_dir}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if venv_dir.exists():
-        print(f"  Removing existing venv...")
+        print("  Removing existing venv...")
         shutil.rmtree(venv_dir)
 
     run_command([sys.executable, "-m", "venv", str(venv_dir)])
@@ -93,25 +93,20 @@ def create_venv(venv_dir: Path) -> dict:
 
 def install_package(paths: dict, project_dir: Path, extras: str | None = None) -> None:
     """Install polyinfer package."""
-    print(f"\n{'='*60}")
-    print(f"Installing polyinfer" + (f"[{extras}]" if extras else ""))
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("Installing polyinfer" + (f"[{extras}]" if extras else ""))
+    print(f"{'=' * 60}")
 
-    if extras:
-        install_spec = f"{project_dir}[{extras}]"
-    else:
-        install_spec = str(project_dir)
+    install_spec = f"{project_dir}[{extras}]" if extras else str(project_dir)
 
-    run_command([
-        str(paths["python"]), "-m", "pip", "install", "-e", install_spec
-    ])
+    run_command([str(paths["python"]), "-m", "pip", "install", "-e", install_spec])
 
 
 def verify_imports(paths: dict, extras: str | None = None) -> bool:
     """Verify that imports work correctly."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Verifying imports...")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Basic imports that should always work
     basic_imports = """
@@ -130,10 +125,7 @@ assert hasattr(pi, 'compare')
 print("Core API: OK")
 """
 
-    result = run_command(
-        [str(paths["python"]), "-c", basic_imports],
-        check=False
-    )
+    result = run_command([str(paths["python"]), "-c", basic_imports], check=False)
 
     if result.returncode != 0:
         print("  FAILED: Basic imports")
@@ -152,10 +144,7 @@ print(f"Backends available: {backends}")
 assert 'onnxruntime' in backends, f"onnxruntime not in {backends}"
 print("Backend check: OK")
 """
-        result = run_command(
-            [str(paths["python"]), "-c", extras_check],
-            check=False
-        )
+        result = run_command([str(paths["python"]), "-c", extras_check], check=False)
         if result.returncode != 0:
             print("  FAILED: Backend check")
             return False
@@ -166,20 +155,21 @@ print("Backend check: OK")
 
 def run_tests(paths: dict, project_dir: Path, quick: bool = True) -> bool:
     """Run the test suite."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Running tests...")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Install pytest
-    run_command([
-        str(paths["python"]), "-m", "pip", "install", "pytest", "-q"
-    ])
+    run_command([str(paths["python"]), "-m", "pip", "install", "pytest", "-q"])
 
     # Run tests
     test_args = [
-        str(paths["python"]), "-m", "pytest",
+        str(paths["python"]),
+        "-m",
+        "pytest",
         str(project_dir / "tests"),
-        "-v", "--tb=short",
+        "-v",
+        "--tb=short",
     ]
 
     if quick:
@@ -198,20 +188,18 @@ def run_tests(paths: dict, project_dir: Path, quick: bool = True) -> bool:
 
 def check_installed_packages(paths: dict) -> None:
     """List installed packages for debugging."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Installed packages:")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
-    run_command([
-        str(paths["python"]), "-m", "pip", "list", "--format=columns"
-    ])
+    run_command([str(paths["python"]), "-m", "pip", "list", "--format=columns"])
 
 
 def cleanup_venv(venv_dir: Path) -> None:
     """Remove the virtual environment."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Cleaning up: {venv_dir}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if venv_dir.exists():
         shutil.rmtree(venv_dir)
@@ -266,19 +254,16 @@ def main():
         sys.exit(1)
 
     # Determine venv directory
-    if args.venv_dir:
-        venv_dir = args.venv_dir
-    else:
-        venv_dir = project_dir / "test_venv"
+    venv_dir = args.venv_dir or project_dir / "test_venv"
 
-    print(f"{'#'*60}")
-    print(f"# PolyInfer Installation Test")
+    print(f"{'#' * 60}")
+    print("# PolyInfer Installation Test")
     print(f"# Platform: {platform.system()} {platform.machine()}")
     print(f"# Python: {sys.version.split()[0]}")
     print(f"# Project: {project_dir}")
     print(f"# Venv: {venv_dir}")
     print(f"# Extras: {args.extras or 'none'}")
-    print(f"{'#'*60}")
+    print(f"{'#' * 60}")
 
     success = True
 
@@ -311,19 +296,19 @@ def main():
             cleanup_venv(venv_dir)
         else:
             print(f"\nVirtual environment kept at: {venv_dir}")
-            print(f"Activate with:")
+            print("Activate with:")
             if platform.system() == "Windows":
                 print(f"  {venv_dir}\\Scripts\\activate")
             else:
                 print(f"  source {venv_dir}/bin/activate")
 
     # Summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     if success:
         print("INSTALLATION TEST: PASSED")
     else:
         print("INSTALLATION TEST: FAILED")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     sys.exit(0 if success else 1)
 

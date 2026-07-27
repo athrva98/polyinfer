@@ -2,9 +2,72 @@
 
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
+
+from polyinfer.exceptions import InferenceError, InvalidInputError, PolyInferError
+
+
+@contextmanager
+def translate_errors(backend_name: str, stage: str = "inference") -> Iterator[None]:
+    """Convert a backend's native exception into a PolyInfer one.
+
+    Each runtime raises its own type - ONNX Runtime's InvalidArgument derives
+    straight from Exception, not RuntimeError - so without this, portable
+    error handling across backends is impossible. The original exception is
+    preserved as __cause__.
+
+    PolyInfer errors pass through untouched, as do KeyboardInterrupt and
+    SystemExit, which must never be swallowed.
+
+    Args:
+        backend_name: Name used in the error message.
+        stage: What was being attempted, e.g. "inference".
+    """
+    try:
+        yield
+    except PolyInferError:
+        raise
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as e:
+        raise InferenceError(
+            f"{stage.capitalize()} failed on {backend_name}: {type(e).__name__}: {e}"
+        ) from e
+
+
+def describe_import_error(
+    error: ImportError,
+    *,
+    packages: tuple[str, ...],
+    install_hint: str,
+) -> str:
+    """Classify a backend import failure into an actionable message.
+
+    A missing dependency and a broken installation both surface as
+    ImportError, but they need different fixes. A ModuleNotFoundError naming
+    one of the backend's own top-level packages means it was never installed;
+    anything else (a failed DLL/shared-object initialization, a version
+    clash) means it is installed but unusable.
+
+    Args:
+        error: The ImportError raised while importing the backend.
+        packages: Top-level module names owned by this backend.
+        install_hint: Command that installs the backend.
+
+    Returns:
+        A human-readable reason string.
+    """
+    if isinstance(error, ModuleNotFoundError):
+        missing = (error.name or "").split(".")[0]
+        if missing in packages:
+            return f"not installed ({install_hint})"
+        # A dependency of the backend is missing, not the backend itself.
+        return f"installed but a dependency is missing: {error} ({install_hint})"
+    return f"installed but failed to import: {error}"
 
 
 class CompiledModel(ABC):
@@ -57,6 +120,30 @@ class CompiledModel(ABC):
         """
         ...
 
+    def _check_input_count(self, inputs: tuple[np.ndarray, ...]) -> None:
+        """Validate the number of positional inputs against the model.
+
+        Positional inputs are bound to input names by position. Binding used
+        ``zip(..., strict=False)``, which silently dropped extras and left
+        missing inputs unbound, turning an arity mistake into a confusing
+        downstream error or a wrong result.
+
+        Raises:
+            InvalidInputError: If the count does not match the model's
+                inputs. Also a ValueError, for backwards compatibility.
+        """
+        names = self.input_names
+        if not names or len(inputs) == len(names):
+            return
+
+        raise InvalidInputError(
+            f"{self.backend_name} expects {len(names)} input(s) but got {len(inputs)}.\n"
+            f"Expected inputs, in order: {names}\n"
+            "Positional inputs are matched by position, so they must be passed "
+            "in the model's declared input order. Use model.run({name: array}) "
+            "to bind by name instead."
+        )
+
     def run(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Run inference with named inputs/outputs.
 
@@ -65,9 +152,22 @@ class CompiledModel(ABC):
 
         Returns:
             Dictionary mapping output names to numpy arrays
+
+        Raises:
+            InvalidInputError: If any required input is missing. Also a
+                ValueError, for backwards compatibility.
         """
+        names = self.input_names
+        missing = [name for name in names if name not in inputs]
+        if missing:
+            raise InvalidInputError(
+                f"Missing required input(s) for {self.backend_name}: {missing}\n"
+                f"Expected: {names}\n"
+                f"Got: {sorted(inputs)}"
+            )
+
         # Default implementation using positional call
-        input_arrays = [inputs[name] for name in self.input_names]
+        input_arrays = [inputs[name] for name in names]
         outputs = self(*input_arrays)
 
         if isinstance(outputs, np.ndarray):
@@ -159,6 +259,19 @@ class Backend(ABC):
     def is_available(self) -> bool:
         """Check if this backend is available (dependencies installed)."""
         ...
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        """Explain why this backend is unavailable, if it is.
+
+        Returns None when the backend is available. Otherwise returns the
+        underlying import error, which distinguishes "not installed" from
+        "installed but broken" (e.g. a DLL that fails to initialize). Without
+        this, both cases look identical to the user.
+        """
+        if self.is_available():
+            return None
+        return "not installed"
 
     @abstractmethod
     def load(

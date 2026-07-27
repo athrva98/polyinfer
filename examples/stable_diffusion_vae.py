@@ -407,6 +407,7 @@ def run_roundtrip(args):
 
     try:
         from PIL import Image
+
         comparison = Image.new("RGB", (size * 2, size))
         comparison.paste(Image.fromarray(original), (0, 0))
         comparison.paste(Image.fromarray(recon), (size, 0))
@@ -427,9 +428,9 @@ def benchmark_vae(model_name: str, model_dir: str):
     img_size = 1024 if is_sdxl else 512
     latent_size = img_size // 8
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"VAE Benchmark: {model_name} ({img_size}x{img_size})")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     # Prepare inputs
     dummy_image = np.random.randn(1, 3, img_size, img_size).astype(np.float32)
@@ -505,14 +506,18 @@ def benchmark_vae(model_name: str, model_dir: str):
             encode_ms = np.mean(encode_times)
             decode_ms = np.mean(decode_times)
 
-            results.append({
-                "backend": encoder.backend_name,
-                "encode_ms": encode_ms,
-                "decode_ms": decode_ms,
-            })
+            results.append(
+                {
+                    "backend": encoder.backend_name,
+                    "encode_ms": encode_ms,
+                    "decode_ms": decode_ms,
+                }
+            )
 
-            print(f"  {encoder.backend_name:<25} Encode: {encode_ms:>7.2f}ms  "
-                  f"Decode: {decode_ms:>7.2f}ms")
+            print(
+                f"  {encoder.backend_name:<25} Encode: {encode_ms:>7.2f}ms  "
+                f"Decode: {decode_ms:>7.2f}ms"
+            )
 
         except Exception as e:
             print(f"  {backend}/{device}: Error - {e}")
@@ -523,26 +528,26 @@ def benchmark_vae(model_name: str, model_dir: str):
         # Sort by decode time (most common operation in SD)
         results.sort(key=lambda x: x["decode_ms"])
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("RESULTS (sorted by decode time)")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"{'Backend':<25} {'Encode':>10} {'Decode':>10} {'Speedup':>10}")
         print("-" * 70)
 
         baseline = results[-1]["decode_ms"]
         for r in results:
             speedup = baseline / r["decode_ms"]
-            print(f"{r['backend']:<25} {r['encode_ms']:>8.2f}ms {r['decode_ms']:>8.2f}ms "
-                  f"{speedup:>9.1f}x")
+            print(
+                f"{r['backend']:<25} {r['encode_ms']:>8.2f}ms {r['decode_ms']:>8.2f}ms "
+                f"{speedup:>9.1f}x"
+            )
 
         print("-" * 70)
         print(f"\nFastest decode: {results[0]['backend']} ({results[0]['decode_ms']:.2f}ms)")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Stable Diffusion VAE with PolyInfer"
-    )
+    parser = argparse.ArgumentParser(description="Stable Diffusion VAE with PolyInfer")
     parser.add_argument(
         "--model",
         default="sd-vae-ft-mse",
