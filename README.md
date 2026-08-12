@@ -1,4 +1,6 @@
-```
+
+
+```markdown
 ██████╗  ██████╗ ██╗  ██╗   ██╗██╗███╗   ██╗███████╗███████╗██████╗
 ██╔══██╗██╔═══██╗██║  ╚██╗ ██╔╝██║████╗  ██║██╔════╝██╔════╝██╔══██╗
 ██████╔╝██║   ██║██║   ╚████╔╝ ██║██╔██╗ ██║█████╗  █████╗  ██████╔╝
@@ -281,7 +283,7 @@ model = backend.load_vmfb(vmfb, device="vulkan")
 | `[vulkan]` | IREE, torch | Cross-platform GPU via Vulkan |
 | `[all]` | Everything above | Maximum compatibility |
 | `[tensorrt]` | tensorrt-cu12, cuda-python | Native TensorRT (install separately) |
-| `[examples]` | PIL, opencv, transformers, diffusers, segment-anything | Running example scripts |
+| `[examples]` | pillow, opencv-python, transformers, diffusers, segment-anything, optimum, onnxscript, ultralytics | Running example scripts |
 
 **Note:** Native TensorRT is provided as a separate `[tensorrt]` extra because `tensorrt-cu12-libs` depends on `cuda-toolkit` which overwrites CUDA libraries and breaks PyTorch. Install it separately after `[nvidia]`, then reinstall torch:
 ```bash
@@ -1115,3 +1117,4 @@ Athrva Pandhare
 ## License
 
 Apache 2.0 - See [LICENSE](LICENSE) for details.
+```
